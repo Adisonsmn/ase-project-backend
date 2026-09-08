@@ -1,0 +1,62 @@
+# Dependencies
+node_modules/
+.pnp
+.pnp.js
+
+# Output & Build
+dist/
+out/
+build/
+*.tgz
+*.tsbuildinfo
+
+# Environment Variables (PENTING: Menutup semua variasi .env)
+.env
+.env.*
+!.env.example
+
+# Secret Keys, Certificates & Credentials
+*.pem
+*.key
+*.crt
+*.pfx
+*service-account*.json
+*credentials*.json
+
+# Database Dumps & Local Databases
+*.sql
+*.sqlite
+*.sqlite3
+*.db
+
+# Logs
+*.log
+logs/
+npm-debug.log*
+yarn-debug.log*
+yarn-error.log*
+bun.log*
+
+# Coverage & Cache
+coverage/
+*.lcov
+.cache/
+.eslintcache
+
+# IDEs & Editors
+.vscode/
+.idea/
+*.suo
+*.ntvs*
+*.njsproj
+*.sln
+*.swp
+
+# OS System Files
+.DS_Store
+Thumbs.db
+desktop.ini
+
+# Project Specific
+/generated/prisma
+.agents/
