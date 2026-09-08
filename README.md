@@ -1,15 +1,29 @@
-# ase
+# ASE Project Backend
 
-To install dependencies:
+Backend API modern menggunakan Express.js, TypeScript, Bun, dan Prisma ORM.
 
-```bash
-bun install
-```
+## 🚀 Tech Stack
+- **Runtime:** Bun
+- **Framework:** Express.js (TypeScript)
+- **Database & ORM:** PostgreSQL + Prisma ORM
+- **Authentication & Validation:** JWT, Argon2, Zod
 
-To run:
+## 🛠️ Cara Menjalankan
 
-```bash
-bun run index.ts
-```
+1. **Install Dependensi:**
+   ```bash
+   bun install
+   ```
 
-This project was created using `bun init` in bun v1.3.13. [Bun](https://bun.com) is a fast all-in-one JavaScript runtime.
+2. **Setup Environment:**
+   Buat file `.env` dan sesuaikan konfigurasi database serta JWT secret.
+
+3. **Database Migration:**
+   ```bash
+   bun run db:migrate
+   ```
+
+4. **Jalankan Server (Development):**
+   ```bash
+   bun dev
+   ```
