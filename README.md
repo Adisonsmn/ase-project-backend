@@ -19,6 +19,10 @@ Backend API untuk aplikasi edukasi literasi keuangan.
    bun install
    ```
 
+   Prisma Client ikut di-generate otomatis lewat `postinstall`, jadi
+   `bun test` dan `bun run typecheck` sudah bisa dijalankan tanpa setup lain.
+   Langkah berikutnya hanya diperlukan kalau Anda mau menjalankan servernya.
+
 2. **Setup environment**
 
    Salin `.env.example` menjadi `.env`, lalu sesuaikan isinya.
@@ -32,11 +36,12 @@ Backend API untuk aplikasi edukasi literasi keuangan.
    - `CORS_ORIGIN` wajib diisi saat `NODE_ENV=production`; server menolak start jika kosong.
    - **Supabase:** gunakan connection string **Session Pooler**, bukan Direct connection (lihat Troubleshooting).
 
-3. **Migrasi database**
+3. **Migrasi database & isi kategori bawaan**
 
    ```bash
    bun run db:migrate     # development
    bun run db:deploy      # production
+   bun run db:seed        # kategori bawaan, aman dijalankan berulang
    ```
 
 4. **Jalankan server**
