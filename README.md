@@ -60,7 +60,7 @@ Backend API untuk aplikasi edukasi literasi keuangan.
 | `bun test`            | Jalankan test                         |
 | `bun run typecheck`   | Cek tipe TypeScript                   |
 | `bun run db:migrate`  | Buat & terapkan migrasi (development) |
-| `bun run db:seed`     | Isi kategori bawaan (idempotent)      |
+| `bun run db:seed`     | Isi kategori bawaan & ide income (idempotent) |
 | `bun run db:deploy`   | Terapkan migrasi (production)         |
 | `bun run db:generate` | Generate Prisma Client                |
 | `bun run db:studio`   | Buka Prisma Studio                    |
@@ -112,6 +112,13 @@ dari schema Zod yang dipakai untuk validasi, jadi tidak bisa melenceng dari peri
 | POST   | `/api/v1/savings/ratio/calculate` | ✔  | Hitung alokasi dana (tidak disimpan)             |
 | GET    | `/api/v1/savings/ratio`         | ✔    | Rasio tersimpan milik user                       |
 | PUT    | `/api/v1/savings/ratio`         | ✔    | Simpan/ubah rasio kustom                         |
+| POST   | `/api/v1/goals`                 | ✔    | Buat target tabungan                             |
+| GET    | `/api/v1/goals`                 | ✔    | Daftar target                                    |
+| GET    | `/api/v1/goals/:id`             | ✔    | Detail + progress terbaru                        |
+| GET    | `/api/v1/goals/:id/gap`         | ✔    | Analisis gap + rekomendasi income                |
+| PATCH  | `/api/v1/goals/:id`             | ✔    | Ubah target                                      |
+| DELETE | `/api/v1/goals/:id`             | ✔    | Hapus target (transaksi tetap ada)               |
+| GET    | `/api/v1/income-ideas`          | ✔    | Ide penambahan income per kelompok usia          |
 | POST   | `/api/v1/transactions`          | ✔    | Catat transaksi                                  |
 | GET    | `/api/v1/transactions`          | ✔    | Riwayat + filter + pagination                    |
 | GET    | `/api/v1/transactions/summary`  | ✔    | Ringkasan & data grafik                          |
@@ -146,6 +153,18 @@ total Rp 99.999.
 **Konversi ke bulanan** memakai faktor harian × 30 dan mingguan × 4,345
 (= 365 ÷ 7 ÷ 12). Memakai 4 untuk mingguan akan kehilangan sekitar satu bulan
 pemasukan per tahun.
+
+**Progress target dihitung dari transaksi**, bukan dari kolom yang di-update
+manual. Kolom `currentAmount` hanya cache yang disegarkan setiap progress
+dibaca. Menghapus transaksi tabungan otomatis menurunkan progress — kalau
+angkanya disimpan manual, ia akan melenceng tanpa ketahuan.
+
+**Menghapus target tidak menghapus transaksinya.** Tautan `goalId` dilepas
+(`onDelete: SetNull`), catatan keuangan user tetap utuh.
+
+**Hanya transaksi pengeluaran yang bisa ditautkan ke target.** Menautkan
+pemasukan akan membuat progress terhitung dua kali: sekali saat uang masuk,
+sekali saat disisihkan.
 
 Format error konsisten:
 
