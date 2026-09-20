@@ -8,6 +8,7 @@ import userRoutes from "./routes/user.routes";
 import healthRoutes from "./routes/health.routes";
 import categoryRoutes from "./routes/category.routes";
 import transactionRoutes from "./routes/transaction.routes";
+import savingsRoutes from "./routes/savings.routes";
 import docsRoutes from "./routes/docs.routes";
 import { requestIdMiddleware } from "./middlewares/request-id.middleware";
 import {
@@ -46,6 +47,7 @@ app.use("/api/v1/auth", authRoutes);
 app.use("/api/v1/users", userRoutes);
 app.use("/api/v1/categories", categoryRoutes);
 app.use("/api/v1/transactions", transactionRoutes);
+app.use("/api/v1/savings", savingsRoutes);
 app.use("/api/v1/docs", docsRoutes);
 
 // 6. Handler 404 & error global
