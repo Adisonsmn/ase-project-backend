@@ -28,6 +28,20 @@ enum IncomePeriod {
   MONTHLY
 }
 
+enum GoalStatus {
+  ACTIVE
+  ACHIEVED
+  ABANDONED
+}
+
+/// Kelompok usia untuk menyaring rekomendasi penambahan income.
+/// Ditentukan dari dateOfBirth; GENERAL dipakai kalau tanggal lahir kosong.
+enum AgeGroup {
+  TEEN
+  YOUNG_ADULT
+  GENERAL
+}
+
 model User {
   id           String    @id @default(uuid())
   email        String    @unique
@@ -45,6 +59,7 @@ model User {
   categories   Category[]
   transactions Transaction[]
   savingRatio  SavingRatio?
+  goals        SavingGoal[]
 }
 
 model Session {
@@ -90,6 +105,8 @@ model Transaction {
   id         String          @id @default(uuid())
   userId     String
   categoryId String?
+  /// Transaksi tabungan yang ditautkan ke sebuah target.
+  goalId     String?
   type       TransactionType
   amount     Decimal         @db.Decimal(14, 2)
   note       String?
@@ -98,14 +115,17 @@ model Transaction {
   createdAt  DateTime        @default(now())
   updatedAt  DateTime        @updatedAt
 
-  user     User      @relation(fields: [userId], references: [id], onDelete: Cascade)
+  user     User        @relation(fields: [userId], references: [id], onDelete: Cascade)
   // Pengaman lapisan database. Pemindahan ke kategori fallback dilakukan
   // eksplisit di service sebelum kategori dihapus.
-  category Category? @relation(fields: [categoryId], references: [id], onDelete: SetNull)
+  category Category?   @relation(fields: [categoryId], references: [id], onDelete: SetNull)
+  // Menghapus goal tidak menghapus transaksinya; tautannya saja yang dilepas.
+  goal     SavingGoal? @relation(fields: [goalId], references: [id], onDelete: SetNull)
 
   @@index([userId, occurredAt])
   @@index([userId, categoryId])
   @@index([userId, type, occurredAt])
+  @@index([goalId])
 }
 
 /// Preferensi rasio alokasi milik user. Satu baris per user: versi ini hanya
@@ -127,4 +147,51 @@ model SavingRatio {
   updatedAt DateTime @updatedAt
 
   user User @relation(fields: [userId], references: [id], onDelete: Cascade)
+}
+
+/// Target tabungan milik user. Satu user boleh punya beberapa target.
+model SavingGoal {
+  id     String @id @default(uuid())
+  userId String
+
+  title        String
+  targetAmount Decimal  @db.Decimal(14, 2)
+  targetDate   DateTime
+
+  /// Cache hasil penjumlahan transaksi bertaut goal ini. Sumber kebenarannya
+  /// tetap tabel Transaction; kolom ini disegarkan setiap progress dihitung
+  /// supaya tidak pernah melenceng dari data transaksi.
+  currentAmount Decimal @default(0) @db.Decimal(14, 2)
+
+  status    GoalStatus @default(ACTIVE)
+  /// Target utama yang ditonjolkan di beranda. Maksimal satu per user.
+  isPrimary Boolean    @default(false)
+
+  createdAt DateTime @default(now())
+  updatedAt DateTime @updatedAt
+
+  user         User          @relation(fields: [userId], references: [id], onDelete: Cascade)
+  transactions Transaction[]
+
+  @@index([userId, status])
+}
+
+/// Ide penambahan income, disaring menurut kelompok usia.
+/// Disimpan di database, bukan hardcode, supaya bisa ditambah admin nanti.
+model IncomeIdea {
+  id          String   @id @default(uuid())
+  title       String
+  description String
+  ageGroup    AgeGroup
+
+  estMonthlyMin Decimal @db.Decimal(14, 2)
+  estMonthlyMax Decimal @db.Decimal(14, 2)
+  /// 1 = paling ringan, 5 = paling menyita waktu.
+  effortLevel   Int
+
+  isActive  Boolean  @default(true)
+  createdAt DateTime @default(now())
+  updatedAt DateTime @updatedAt
+
+  @@index([ageGroup, isActive])
 }
