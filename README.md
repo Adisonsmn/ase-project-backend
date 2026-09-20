@@ -175,3 +175,120 @@ Format error konsisten:
   "requestId": "0f6a...-..."
 }
 ```
+
+## 🔐 Catatan Keamanan
+
+- Password di-hash dengan **Argon2id**.
+- Refresh token disimpan sebagai hash, bukan plaintext, dan **dirotasi** setiap kali dipakai.
+- Penggunaan ulang refresh token yang sudah dicabut dianggap indikasi kebocoran: seluruh sesi user otomatis dicabut.
+- Rate limit: 100 req/15 menit global, 10 percobaan gagal/15 menit untuk login & refresh, 5 pendaftaran/jam.
+- Setiap request mendapat `X-Request-Id` yang ikut tercatat di log error 5xx.
+
+## 📌 Status
+
+Selesai:
+
+- Fondasi: auth, profil user, middleware, health check, logging
+- **F-01..F-03** Saran rasio menabung: kalkulator alokasi, preset, rasio kustom, tips
+- **F-04..F-06** Goal & saran income: target tabungan, progress dari transaksi, analisis gap, rekomendasi income per usia
+- **F-07..F-09** Catatan pengeluaran/pemasukan: kategori, transaksi, filter, ringkasan & data grafik
+
+Berikutnya, sesuai urutan prioritas PRD bagian 8:
+F-14..F-16 artikel → F-10..F-13 simulasi investasi.
+
+## 🚀 Deploy (Railway)
+
+Aplikasi ini berupa server Express yang berjalan terus-menerus, jadi butuh platform
+yang menjalankan proses. **Vercel tidak cocok** — lihat Troubleshooting.
+
+Konfigurasinya ada di `railway.json`. Railway mendeteksi `bun.lock` dan otomatis memakai Bun.
+
+### Langkah
+
+1. Buat project baru di Railway, pilih **Deploy from GitHub repo**.
+2. Isi environment variable di tab **Variables**:
+
+   | Variable | Nilai |
+   |---|---|
+   | `NODE_ENV` | `production` |
+   | `DATABASE_URL` | Connection string Supabase **Session Pooler** |
+   | `JWT_ACCESS_SECRET` | Minimal 32 karakter |
+   | `JWT_REFRESH_SECRET` | Minimal 32 karakter, **berbeda** dari access secret |
+   | `CORS_ORIGIN` | Origin frontend, dipisahkan koma |
+
+   `PORT` **tidak perlu diisi** — Railway menyuntikkannya sendiri dan aplikasi sudah membacanya.
+
+3. Deploy. Migrasi dijalankan otomatis lewat `preDeployCommand`.
+4. Jalankan seed sekali setelah deploy pertama berhasil:
+
+   ```bash
+   railway run bun prisma/seed.ts
+   ```
+
+   Tanpa seed, kategori bawaan dan daftar ide income akan kosong.
+
+### Yang sudah disiapkan di `railway.json`
+
+- `preDeployCommand` menjalankan `prisma migrate deploy` sebelum versi baru aktif
+- Health check menunjuk `/health`; Railway menahan rilis kalau endpoint itu tidak sehat
+- `app.set("trust proxy", 1)` sudah dipasang, sehingga rate limiter membaca IP asli di balik proxy Railway
+
+### Gotcha
+
+**Server sengaja menolak start kalau `CORS_ORIGIN` kosong di production.** Ini bukan bug.
+Kalau deploy gagal dengan `Konfigurasi environment tidak valid`, periksa variable itu.
+
+**Rate limiter menyimpan hitungan di memori.** Kalau nanti dijalankan lebih dari satu
+replica, tiap instance punya hitungan sendiri dan pembatasnya jadi longgar. Perlu
+penyimpanan bersama (misalnya Redis) sebelum menaikkan `numReplicas`.
+## 🧯 Troubleshooting
+
+### `P1001: Can't reach database server at db.<ref>.supabase.co:5432`
+
+Muncul meskipun project Supabase sedang aktif. Penyebabnya bukan database mati, tapi **IPv6**.
+
+Host direct connection Supabase (`db.<ref>.supabase.co`) hanya punya record DNS `AAAA` — IPv6-only, tanpa IPv4:
+
+```bash
+nslookup -type=A    db.<ref>.supabase.co   # kosong
+nslookup -type=AAAA db.<ref>.supabase.co   # ada
+```
+
+Kalau jaringan Anda tidak punya konektivitas IPv6 (umum di ISP rumahan dan jaringan kampus di Indonesia), host itu tidak akan pernah bisa dihubungi.
+
+**Solusi:** pakai **Session Pooler** yang punya alamat IPv4. Di dashboard Supabase: tombol **Connect** → **Session pooler**.
+
+```
+# Direct connection — IPv6-only, hindari
+postgresql://postgres:<password>@db.<ref>.supabase.co:5432/postgres
+
+# Session pooler — IPv4, pakai ini
+postgresql://postgres.<ref>:<password>@aws-0-<region>.pooler.supabase.com:5432/postgres
+```
+
+Perhatikan dua perbedaannya: **username** menjadi `postgres.<project-ref>`, dan **host** menjadi `aws-0-<region>.pooler.supabase.com`.
+
+Cek konektivitas IPv6 Anda dengan:
+
+```bash
+curl -6 -m 8 -o /dev/null -w "%{http_code}" https://ipv6.google.com
+```
+
+Kalau hasilnya `000`, jaringan Anda memang tanpa IPv6.
+
+> **Catatan port.** Gunakan port **5432** (session mode) karena mendukung migrasi Prisma dan prepared statement.
+> Port **6543** adalah transaction mode — lebih hemat koneksi untuk serverless, tapi **tidak bisa menjalankan migrasi**
+> dan perlu tambahan `?pgbouncer=true&connection_limit=1`.
+
+### Build gagal di Vercel: `TS2688: Cannot find type definition file for 'bun'`
+
+Vercel menjalankan pemeriksaan TypeScript memakai `tsconfig.json`, yang mencantumkan
+`"types": ["bun"]`, lalu gagal menemukan `@types/bun`.
+
+Menghapus baris `"types": ["bun"]` **bukan solusinya** — itu membuat `bun:test` tidak
+dikenali dan merusak `bun run typecheck` secara lokal.
+
+Akar masalahnya lebih dalam: aplikasi ini memang tidak bisa berjalan di Vercel. Vercel
+menjalankan fungsi serverless, sementara `src/server.ts` memanggil `app.listen()` dan
+berjalan terus-menerus. Seandainya build-nya lolos pun, tidak ada fungsi yang bisa
+disajikan. Pakai Railway — lihat bagian Deploy.
