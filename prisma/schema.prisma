@@ -22,6 +22,12 @@ enum TransactionType {
   EXPENSE
 }
 
+enum IncomePeriod {
+  DAILY
+  WEEKLY
+  MONTHLY
+}
+
 model User {
   id           String    @id @default(uuid())
   email        String    @unique
@@ -38,6 +44,7 @@ model User {
   sessions     Session[]
   categories   Category[]
   transactions Transaction[]
+  savingRatio  SavingRatio?
 }
 
 model Session {
@@ -99,4 +106,25 @@ model Transaction {
   @@index([userId, occurredAt])
   @@index([userId, categoryId])
   @@index([userId, type, occurredAt])
+}
+
+/// Preferensi rasio alokasi milik user. Satu baris per user: versi ini hanya
+/// mendukung satu rasio aktif, bukan banyak profil.
+model SavingRatio {
+  id     String @id @default(uuid())
+  userId String @unique
+
+  /// Total ketiganya wajib 100, dijaga di lapisan validasi.
+  needsPct   Int
+  savingsPct Int
+  funPct     Int
+
+  /// Pemasukan terakhir yang dipakai menghitung, disimpan untuk prefill form.
+  incomeAmount Decimal?      @db.Decimal(14, 2)
+  period       IncomePeriod?
+
+  createdAt DateTime @default(now())
+  updatedAt DateTime @updatedAt
+
+  user User @relation(fields: [userId], references: [id], onDelete: Cascade)
 }
