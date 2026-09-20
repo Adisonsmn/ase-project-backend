@@ -1,0 +1,346 @@
+import { z } from "zod";
+
+import {
+  registerSchema,
+  loginSchema,
+  refreshSchema,
+} from "../schemas/auth.schema";
+import { updateMeSchema } from "../schemas/user.schema";
+import {
+  listCategoryQuerySchema,
+  createCategorySchema,
+  updateCategorySchema,
+} from "../schemas/category.schema";
+import {
+  createTransactionSchema,
+  updateTransactionSchema,
+  listTransactionQuerySchema,
+  summaryQuerySchema,
+} from "../schemas/transaction.schema";
+
+/**
+ * Dokumen OpenAPI dibangun langsung dari schema Zod yang dipakai
+ * validateMiddleware, memakai konversi JSON Schema bawaan Zod 4. Dengan begitu
+ * dokumentasi tidak bisa melenceng dari validasi yang benar-benar berjalan:
+ * mengubah schema otomatis mengubah dokumentasi.
+ */
+
+type JsonSchema = Record<string, unknown>;
+
+/** Schema di proyek ini berbentuk z.object({ body, params, query }). */
+type RequestSchema = z.ZodObject<Record<string, z.ZodType>>;
+
+const toJson = (schema: z.ZodType): JsonSchema => {
+  const json = z.toJSONSchema(schema, {
+    io: "input",
+    // `amount` memakai .transform(), yang tidak punya padanan langsung di
+    // JSON Schema. "any" membuatnya tetap terdokumentasi, bukan menggagalkan
+    // pembuatan dokumen.
+    unrepresentable: "any",
+  }) as JsonSchema;
+
+  // Dokumen OpenAPI 3.1 sudah menetapkan dialek JSON Schema-nya sendiri,
+  // jadi $schema per sub-skema hanya jadi derau.
+  delete json.$schema;
+  return json;
+};
+
+const partOf = (schema: RequestSchema, key: "body" | "params" | "query") => {
+  const part = schema.shape[key];
+  return part ? toJson(part) : undefined;
+};
+
+/** Object JSON Schema -> daftar parameter OpenAPI. */
+const toParameters = (
+  schema: RequestSchema,
+  key: "params" | "query",
+  location: "path" | "query",
+) => {
+  const json = partOf(schema, key);
+  if (!json) return [];
+
+  const properties = (json.properties ?? {}) as Record<string, JsonSchema>;
+  const required = (json.required ?? []) as string[];
+
+  return Object.entries(properties).map(([name, propertySchema]) => ({
+    name,
+    in: location,
+    required: location === "path" ? true : required.includes(name),
+    schema: propertySchema,
+  }));
+};
+
+const jsonBody = (schema: RequestSchema) => {
+  const body = partOf(schema, "body");
+  if (!body || Object.keys(body.properties ?? {}).length === 0) return undefined;
+
+  return {
+    required: true,
+    content: { "application/json": { schema: body } },
+  };
+};
+
+const errorResponse = (description: string) => ({
+  description,
+  content: {
+    "application/json": {
+      schema: {
+        type: "object",
+        properties: {
+          message: { type: "string" },
+          errors: { type: "object", additionalProperties: true },
+          requestId: { type: "string" },
+        },
+        required: ["message"],
+      },
+    },
+  },
+});
+
+type RouteSpec = {
+  method: "get" | "post" | "patch" | "delete";
+  path: string;
+  tag: string;
+  summary: string;
+  auth?: boolean;
+  admin?: boolean;
+  schema?: RequestSchema;
+  successStatus?: number;
+  successDescription?: string;
+};
+
+const routes: RouteSpec[] = [
+  {
+    method: "get",
+    path: "/health",
+    tag: "Health",
+    summary: "Liveness probe",
+    successDescription: "Server hidup",
+  },
+  {
+    method: "get",
+    path: "/health/ready",
+    tag: "Health",
+    summary: "Readiness probe, termasuk cek koneksi database",
+    successDescription: "Server dan database siap",
+  },
+
+  {
+    method: "post",
+    path: "/api/v1/auth/register",
+    tag: "Auth",
+    summary: "Daftar akun baru",
+    schema: registerSchema,
+    successStatus: 201,
+    successDescription: "Akun dibuat, access & refresh token dikembalikan",
+  },
+  {
+    method: "post",
+    path: "/api/v1/auth/login",
+    tag: "Auth",
+    summary: "Login",
+    schema: loginSchema,
+    successDescription: "Access & refresh token",
+  },
+  {
+    method: "post",
+    path: "/api/v1/auth/refresh",
+    tag: "Auth",
+    summary: "Tukar refresh token (token lama dirotasi)",
+    schema: refreshSchema,
+    successDescription: "Pasangan token baru",
+  },
+  {
+    method: "post",
+    path: "/api/v1/auth/logout",
+    tag: "Auth",
+    summary: "Cabut sesi",
+    schema: refreshSchema,
+    successDescription: "Sesi dicabut",
+  },
+
+  {
+    method: "get",
+    path: "/api/v1/users/me",
+    tag: "User",
+    summary: "Profil sendiri",
+    auth: true,
+    successDescription: "Data profil",
+  },
+  {
+    method: "patch",
+    path: "/api/v1/users/me",
+    tag: "User",
+    summary: "Ubah profil sendiri",
+    auth: true,
+    schema: updateMeSchema,
+    successDescription: "Profil setelah diperbarui",
+  },
+
+  {
+    method: "get",
+    path: "/api/v1/categories",
+    tag: "Kategori",
+    summary: "Daftar kategori (bawaan sistem + milik sendiri)",
+    auth: true,
+    schema: listCategoryQuerySchema,
+    successDescription: "Daftar kategori",
+  },
+  {
+    method: "post",
+    path: "/api/v1/categories",
+    tag: "Kategori",
+    summary: "Tambah kategori kustom",
+    auth: true,
+    schema: createCategorySchema,
+    successStatus: 201,
+    successDescription: "Kategori dibuat",
+  },
+  {
+    method: "patch",
+    path: "/api/v1/categories/{id}",
+    tag: "Kategori",
+    summary: "Ubah kategori sendiri (kategori bawaan ditolak 403)",
+    auth: true,
+    schema: updateCategorySchema,
+    successDescription: "Kategori setelah diperbarui",
+  },
+  {
+    method: "delete",
+    path: "/api/v1/categories/{id}",
+    tag: "Kategori",
+    summary:
+      "Hapus kategori sendiri. Transaksinya dipindah ke kategori Lain-lain, tidak ikut terhapus",
+    auth: true,
+    schema: updateCategorySchema,
+    successDescription: "Kategori dihapus, beserta jumlah transaksi yang dipindah",
+  },
+
+  {
+    method: "post",
+    path: "/api/v1/transactions",
+    tag: "Transaksi",
+    summary: "Catat transaksi",
+    auth: true,
+    schema: createTransactionSchema,
+    successStatus: 201,
+    successDescription: "Transaksi dibuat",
+  },
+  {
+    method: "get",
+    path: "/api/v1/transactions",
+    tag: "Transaksi",
+    summary: "Riwayat transaksi dengan filter dan pagination",
+    auth: true,
+    schema: listTransactionQuerySchema,
+    successDescription: "Daftar transaksi + meta pagination",
+  },
+  {
+    method: "get",
+    path: "/api/v1/transactions/summary",
+    tag: "Transaksi",
+    summary:
+      "Ringkasan pemasukan vs pengeluaran, breakdown kategori, dan deret waktu untuk grafik",
+    auth: true,
+    schema: summaryQuerySchema,
+    successDescription: "Data ringkasan",
+  },
+  {
+    method: "get",
+    path: "/api/v1/transactions/{id}",
+    tag: "Transaksi",
+    summary: "Detail transaksi",
+    auth: true,
+    schema: updateTransactionSchema,
+    successDescription: "Detail transaksi",
+  },
+  {
+    method: "patch",
+    path: "/api/v1/transactions/{id}",
+    tag: "Transaksi",
+    summary: "Ubah transaksi",
+    auth: true,
+    schema: updateTransactionSchema,
+    successDescription: "Transaksi setelah diperbarui",
+  },
+  {
+    method: "delete",
+    path: "/api/v1/transactions/{id}",
+    tag: "Transaksi",
+    summary: "Hapus transaksi",
+    auth: true,
+    schema: updateTransactionSchema,
+    successDescription: "Transaksi dihapus",
+  },
+];
+
+export const buildOpenApiDocument = () => {
+  const paths: Record<string, Record<string, unknown>> = {};
+
+  for (const route of routes) {
+    const parameters = route.schema
+      ? [
+          ...toParameters(route.schema, "params", "path"),
+          ...toParameters(route.schema, "query", "query"),
+        ]
+      : [];
+
+    // Endpoint GET/DELETE tidak mengirim body walau schema-nya punya bagian body
+    // (schema-nya dipakai ulang hanya untuk parameter :id).
+    const sendsBody = route.method === "post" || route.method === "patch";
+
+    const operation: Record<string, unknown> = {
+      tags: [route.tag],
+      summary: route.summary,
+      ...(parameters.length > 0 && { parameters }),
+      ...(sendsBody && route.schema
+        ? { requestBody: jsonBody(route.schema) }
+        : {}),
+      responses: {
+        [route.successStatus ?? 200]: {
+          description: route.successDescription ?? "Berhasil",
+        },
+        400: errorResponse("Data request tidak valid"),
+        ...(route.auth && { 401: errorResponse("Token tidak ada atau kedaluwarsa") }),
+        ...(route.admin && { 403: errorResponse("Tidak punya akses") }),
+        404: errorResponse("Data tidak ditemukan"),
+        429: errorResponse("Terlalu banyak permintaan"),
+      },
+      ...(route.auth && { security: [{ bearerAuth: [] }] }),
+    };
+
+    paths[route.path] = { ...paths[route.path], [route.method]: operation };
+  }
+
+  return {
+    openapi: "3.1.0",
+    info: {
+      title: "API Edukasi Literasi Keuangan",
+      version: "1.0.0",
+      description:
+        "Backend aplikasi edukasi literasi keuangan.\n\n" +
+        "Catatan penting:\n" +
+        "- Nominal uang dikirim dan diterima sebagai **string** (contoh `\"15000.55\"`) untuk menjaga presisi desimal.\n" +
+        "- Tanggal memakai ISO 8601. Laporan dikelompokkan menurut waktu **Asia/Jakarta**.\n" +
+        "- Semua respons error berformat `{ message, errors?, requestId }`.",
+    },
+    servers: [{ url: "/" }],
+    tags: [
+      { name: "Health", description: "Monitoring" },
+      { name: "Auth", description: "Registrasi, login, rotasi token" },
+      { name: "User", description: "Profil pengguna" },
+      { name: "Kategori", description: "Kategori transaksi (F-07)" },
+      { name: "Transaksi", description: "Catatan keuangan & laporan (F-07..F-09)" },
+    ],
+    components: {
+      securitySchemes: {
+        bearerAuth: {
+          type: "http",
+          scheme: "bearer",
+          bearerFormat: "JWT",
+        },
+      },
+    },
+    paths,
+  };
+};

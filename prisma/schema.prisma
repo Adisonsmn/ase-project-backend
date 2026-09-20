@@ -17,32 +17,86 @@ enum Role {
   ADMIN
 }
 
-model User {
-  id            String    @id @default(uuid())
-  email         String    @unique
-  username      String    @unique
-  passwordHash  String
-  displayName   String?
-  avatarUrl     String?
-  dateOfBirth   DateTime?
-  role          Role      @default(USER)
-  isActive      Boolean   @default(true)
-  createdAt     DateTime  @default(now())
-  updatedAt     DateTime  @updatedAt
+enum TransactionType {
+  INCOME
+  EXPENSE
+}
 
-  sessions      Session[]
+model User {
+  id           String    @id @default(uuid())
+  email        String    @unique
+  username     String    @unique
+  passwordHash String
+  displayName  String?
+  avatarUrl    String?
+  dateOfBirth  DateTime?
+  role         Role      @default(USER)
+  isActive     Boolean   @default(true)
+  createdAt    DateTime  @default(now())
+  updatedAt    DateTime  @updatedAt
+
+  sessions     Session[]
+  categories   Category[]
+  transactions Transaction[]
 }
 
 model Session {
-  id          String    @id @default(uuid())
-  userId      String
-  tokenHash   String
-  expiresAt   DateTime
-  revokedAt   DateTime?
-  createdAt   DateTime  @default(now())
+  id        String    @id @default(uuid())
+  userId    String
+  tokenHash String
+  expiresAt DateTime
+  revokedAt DateTime?
+  createdAt DateTime  @default(now())
 
-  user        User      @relation(fields: [userId], references: [id], onDelete: Cascade)
+  user User @relation(fields: [userId], references: [id], onDelete: Cascade)
 
   @@index([userId])
   @@index([expiresAt])
+}
+
+/// Kategori transaksi.
+/// userId null = kategori bawaan sistem, dipakai bersama oleh semua user.
+model Category {
+  id         String          @id @default(uuid())
+  userId     String?
+  name       String
+  icon       String?
+  type       TransactionType
+  /// Kategori sistem tidak dapat diubah atau dihapus user.
+  isSystem   Boolean         @default(false)
+  /// Penampung transaksi saat kategori lain dihapus. Satu per TransactionType.
+  isFallback Boolean         @default(false)
+  createdAt  DateTime        @default(now())
+  updatedAt  DateTime        @updatedAt
+
+  user         User?         @relation(fields: [userId], references: [id], onDelete: Cascade)
+  transactions Transaction[]
+
+  // Nama kategori unik per user. Kategori sistem (userId null) tidak tercakup
+  // karena NULL selalu dianggap berbeda di Postgres; keunikannya dijaga seed
+  // yang memakai id tetap.
+  @@unique([userId, name, type])
+  @@index([userId])
+}
+
+model Transaction {
+  id         String          @id @default(uuid())
+  userId     String
+  categoryId String?
+  type       TransactionType
+  amount     Decimal         @db.Decimal(14, 2)
+  note       String?
+  /// Kapan transaksi terjadi menurut user (disimpan UTC).
+  occurredAt DateTime
+  createdAt  DateTime        @default(now())
+  updatedAt  DateTime        @updatedAt
+
+  user     User      @relation(fields: [userId], references: [id], onDelete: Cascade)
+  // Pengaman lapisan database. Pemindahan ke kategori fallback dilakukan
+  // eksplisit di service sebelum kategori dihapus.
+  category Category? @relation(fields: [categoryId], references: [id], onDelete: SetNull)
+
+  @@index([userId, occurredAt])
+  @@index([userId, categoryId])
+  @@index([userId, type, occurredAt])
 }

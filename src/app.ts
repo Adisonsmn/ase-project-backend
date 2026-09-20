@@ -6,6 +6,9 @@ import { env } from "./config/env";
 import authRoutes from "./routes/auth.routes";
 import userRoutes from "./routes/user.routes";
 import healthRoutes from "./routes/health.routes";
+import categoryRoutes from "./routes/category.routes";
+import transactionRoutes from "./routes/transaction.routes";
+import docsRoutes from "./routes/docs.routes";
 import { requestIdMiddleware } from "./middlewares/request-id.middleware";
 import {
   errorMiddleware,
@@ -41,6 +44,9 @@ app.use(express.json({ limit: "100kb" }));
 app.use("/health", healthRoutes);
 app.use("/api/v1/auth", authRoutes);
 app.use("/api/v1/users", userRoutes);
+app.use("/api/v1/categories", categoryRoutes);
+app.use("/api/v1/transactions", transactionRoutes);
+app.use("/api/v1/docs", docsRoutes);
 
 // 6. Handler 404 & error global
 app.use(notFoundMiddleware);

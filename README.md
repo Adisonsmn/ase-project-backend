@@ -48,28 +48,30 @@ Backend API untuk aplikasi edukasi literasi keuangan.
 
 ## 📜 Skrip
 
-| Perintah | Keterangan |
-|---|---|
-| `bun dev` | Jalankan server dengan auto-reload |
-| `bun start` | Jalankan server |
-| `bun test` | Jalankan test |
-| `bun run typecheck` | Cek tipe TypeScript |
-| `bun run db:migrate` | Buat & terapkan migrasi (development) |
-| `bun run db:deploy` | Terapkan migrasi (production) |
-| `bun run db:generate` | Generate Prisma Client |
-| `bun run db:studio` | Buka Prisma Studio |
+| Perintah              | Keterangan                            |
+| --------------------- | ------------------------------------- |
+| `bun dev`             | Jalankan server dengan auto-reload    |
+| `bun start`           | Jalankan server                       |
+| `bun test`            | Jalankan test                         |
+| `bun run typecheck`   | Cek tipe TypeScript                   |
+| `bun run db:migrate`  | Buat & terapkan migrasi (development) |
+| `bun run db:seed`     | Isi kategori bawaan (idempotent)      |
+| `bun run db:deploy`   | Terapkan migrasi (production)         |
+| `bun run db:generate` | Generate Prisma Client                |
+| `bun run db:studio`   | Buka Prisma Studio                    |
 
 ## 📁 Struktur
 
 ```
 src/
 ├── config/       # env, database
+├── docs/         # generator dokumen OpenAPI
 ├── controllers/  # HTTP layer
 ├── middlewares/  # auth, role, validate, rate-limit, request-id, error
 ├── routes/       # definisi endpoint
 ├── schemas/      # Zod schema
 ├── services/     # business logic (satu-satunya lapisan yang menyentuh prisma)
-├── utils/        # jwt, password, logger, error
+├── utils/        # jwt, password, logger, money, datetime, error
 ├── types/        # deklarasi tipe global
 ├── app.ts
 └── server.ts
@@ -82,16 +84,50 @@ Aturan: **controller tidak memanggil `prisma` langsung.** Semua akses database l
 
 Base path: `/api/v1`. Autentikasi memakai header `Authorization: Bearer <accessToken>`.
 
-| Method | Endpoint | Auth | Keterangan |
-|---|---|---|---|
-| GET | `/health` | – | Liveness probe |
-| GET | `/health/ready` | – | Readiness probe (cek koneksi database) |
-| POST | `/api/v1/auth/register` | – | Daftar akun baru |
-| POST | `/api/v1/auth/login` | – | Login |
-| POST | `/api/v1/auth/refresh` | – | Tukar refresh token (dengan rotasi) |
-| POST | `/api/v1/auth/logout` | – | Cabut sesi |
-| GET | `/api/v1/users/me` | ✔ | Profil sendiri |
-| PATCH | `/api/v1/users/me` | ✔ | Ubah profil sendiri |
+**Dokumentasi interaktif:** jalankan server lalu buka <http://localhost:3000/api/v1/docs>
+(spesifikasi mentah di `/api/v1/docs/openapi.json`). Dokumen itu dibangun langsung
+dari schema Zod yang dipakai untuk validasi, jadi tidak bisa melenceng dari perilaku API.
+
+| Method | Endpoint                        | Auth | Keterangan                                       |
+| ------ | ------------------------------- | ---- | ------------------------------------------------ |
+| GET    | `/health`                       | –    | Liveness probe                                   |
+| GET    | `/health/ready`                 | –    | Readiness probe (cek koneksi database)           |
+| GET    | `/api/v1/docs`                  | –    | Dokumentasi API interaktif                       |
+| POST   | `/api/v1/auth/register`         | –    | Daftar akun baru                                 |
+| POST   | `/api/v1/auth/login`            | –    | Login                                            |
+| POST   | `/api/v1/auth/refresh`          | –    | Tukar refresh token (dengan rotasi)              |
+| POST   | `/api/v1/auth/logout`           | –    | Cabut sesi                                       |
+| GET    | `/api/v1/users/me`              | ✔    | Profil sendiri                                   |
+| PATCH  | `/api/v1/users/me`              | ✔    | Ubah profil sendiri                              |
+| GET    | `/api/v1/categories`            | ✔    | Kategori bawaan + milik sendiri                  |
+| POST   | `/api/v1/categories`            | ✔    | Tambah kategori kustom                           |
+| PATCH  | `/api/v1/categories/:id`        | ✔    | Ubah kategori sendiri                            |
+| DELETE | `/api/v1/categories/:id`        | ✔    | Hapus kategori; transaksinya pindah ke Lain-lain |
+| POST   | `/api/v1/transactions`          | ✔    | Catat transaksi                                  |
+| GET    | `/api/v1/transactions`          | ✔    | Riwayat + filter + pagination                    |
+| GET    | `/api/v1/transactions/summary`  | ✔    | Ringkasan & data grafik                          |
+| GET    | `/api/v1/transactions/:id`      | ✔    | Detail transaksi                                 |
+| PATCH  | `/api/v1/transactions/:id`      | ✔    | Ubah transaksi                                   |
+| DELETE | `/api/v1/transactions/:id`      | ✔    | Hapus transaksi                                  |
+
+### Konvensi penting
+
+**Nominal uang dikirim sebagai string**, bukan number:
+
+```json
+{ "type": "EXPENSE", "amount": "15000.55", "occurredAt": "2026-09-18" }
+```
+
+Disimpan sebagai `DECIMAL(14,2)`. `Number` JavaScript tidak dapat merepresentasikan
+pecahan desimal secara tepat (`0.1 + 0.2 !== 0.3`), sehingga agregasi lewat `Number`
+bisa menghasilkan selisih rupiah pada laporan.
+
+**Laporan dikelompokkan menurut waktu Asia/Jakarta**, bukan UTC. Transaksi jam
+23:30 WIB masuk ke hari itu juga, bukan hari berikutnya. Nilai tetap disimpan
+dalam UTC; konversi dilakukan saat agregasi.
+
+**Filter tanggal bersifat inklusif** — `?from=2026-09-19&to=2026-09-19` mencakup
+seluruh hari tersebut dalam waktu WIB.
 
 Format error konsisten:
 
@@ -102,56 +138,3 @@ Format error konsisten:
   "requestId": "0f6a...-..."
 }
 ```
-
-## 🔐 Catatan Keamanan
-
-- Password di-hash dengan **Argon2id**.
-- Refresh token disimpan sebagai hash, bukan plaintext, dan **dirotasi** setiap kali dipakai.
-- Penggunaan ulang refresh token yang sudah dicabut dianggap indikasi kebocoran: seluruh sesi user otomatis dicabut.
-- Rate limit: 100 req/15 menit global, 10 percobaan gagal/15 menit untuk login & refresh, 5 pendaftaran/jam.
-- Setiap request mendapat `X-Request-Id` yang ikut tercatat di log error 5xx.
-
-## 📌 Status
-
-Fondasi (auth, profil user, middleware, health check) sudah selesai.
-Fitur domain F-01 s/d F-16 belum dikerjakan. Urutan prioritas ada di PRD (bagian 8):
-F-07..F-09 catatan transaksi → F-01..F-03 rasio menabung → F-04..F-06 goal & income → F-14..F-16 artikel → F-10..F-13 simulasi investasi.
-
-## 🧯 Troubleshooting
-
-### `P1001: Can't reach database server at db.<ref>.supabase.co:5432`
-
-Muncul meskipun project Supabase sedang aktif. Penyebabnya bukan database mati, tapi **IPv6**.
-
-Host direct connection Supabase (`db.<ref>.supabase.co`) hanya punya record DNS `AAAA` — IPv6-only, tanpa IPv4:
-
-```bash
-nslookup -type=A    db.<ref>.supabase.co   # kosong
-nslookup -type=AAAA db.<ref>.supabase.co   # ada
-```
-
-Kalau jaringan Anda tidak punya konektivitas IPv6 (umum di ISP rumahan dan jaringan kampus di Indonesia), host itu tidak akan pernah bisa dihubungi.
-
-**Solusi:** pakai **Session Pooler** yang punya alamat IPv4. Di dashboard Supabase: tombol **Connect** → **Session pooler**.
-
-```
-# Direct connection — IPv6-only, hindari
-postgresql://postgres:<password>@db.<ref>.supabase.co:5432/postgres
-
-# Session pooler — IPv4, pakai ini
-postgresql://postgres.<ref>:<password>@aws-0-<region>.pooler.supabase.com:5432/postgres
-```
-
-Perhatikan dua perbedaannya: **username** menjadi `postgres.<project-ref>`, dan **host** menjadi `aws-0-<region>.pooler.supabase.com`.
-
-Cek konektivitas IPv6 Anda dengan:
-
-```bash
-curl -6 -m 8 -o /dev/null -w "%{http_code}" https://ipv6.google.com
-```
-
-Kalau hasilnya `000`, jaringan Anda memang tanpa IPv6.
-
-> **Catatan port.** Gunakan port **5432** (session mode) karena mendukung migrasi Prisma dan prepared statement.
-> Port **6543** adalah transaction mode — lebih hemat koneksi untuk serverless, tapi **tidak bisa menjalankan migrasi**
-> dan perlu tambahan `?pgbouncer=true&connection_limit=1`.
