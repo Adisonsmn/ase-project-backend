@@ -4,6 +4,7 @@
   "type": "module",
   "private": true,
   "scripts": {
+    "postinstall": "prisma generate",
     "dev": "bun --watch src/server.ts",
     "start": "bun src/server.ts",
     "db:migrate": "bunx prisma migrate dev",
