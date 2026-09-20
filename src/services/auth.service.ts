@@ -1,15 +1,25 @@
+import type { Role } from "../../generated/prisma/enums";
 import { prisma } from "../config/database";
-import type { RegisterInput, LoginInput, RefreshInput } from "../schemas/auth.schema";
+import type {
+  RegisterInput,
+  LoginInput,
+  RefreshInput,
+} from "../schemas/auth.schema";
 import { AppError } from "../utils/app.error";
 import {
   createAccessToken,
   createRefreshToken,
   verifyRefreshToken,
+  REFRESH_TOKEN_TTL_MS,
 } from "../utils/jwt";
+import { logger } from "../utils/logger";
 import { hashPassword, verifyPassword } from "../utils/password";
 
-const createSessionTokens = (user: { id: string; role: string }) => {
+type SessionUser = { id: string; role: Role };
+
+const createSessionTokens = (user: SessionUser) => {
   const sessionId = crypto.randomUUID();
+
   const accessToken = createAccessToken({
     sub: user.id,
     role: user.role,
@@ -22,6 +32,48 @@ const createSessionTokens = (user: { id: string; role: string }) => {
 
   return { sessionId, accessToken, refreshToken };
 };
+
+/** Membuat sesi baru beserta pasangan tokennya. */
+const issueSession = async (user: SessionUser) => {
+  const { sessionId, accessToken, refreshToken } = createSessionTokens(user);
+
+  await prisma.session.create({
+    data: {
+      id: sessionId,
+      userId: user.id,
+      tokenHash: await hashPassword(refreshToken),
+      expiresAt: new Date(Date.now() + REFRESH_TOKEN_TTL_MS),
+    },
+  });
+
+  return { accessToken, refreshToken };
+};
+
+/**
+ * Mencabut seluruh sesi aktif milik user.
+ * Dipanggil saat terdeteksi penggunaan ulang refresh token, yang merupakan
+ * indikasi token bocor.
+ */
+const revokeAllSessions = async (userId: string) => {
+  await prisma.session.updateMany({
+    where: { userId, revokedAt: null },
+    data: { revokedAt: new Date() },
+  });
+};
+
+const toPublicUser = (user: {
+  id: string;
+  email: string;
+  username: string;
+  displayName: string | null;
+  role: Role;
+}) => ({
+  id: user.id,
+  email: user.email,
+  username: user.username,
+  displayName: user.displayName,
+  role: user.role,
+});
 
 export const register = async (input: RegisterInput) => {
   const existingUser = await prisma.user.findFirst({
@@ -47,35 +99,14 @@ export const register = async (input: RegisterInput) => {
     },
   });
 
-  const { sessionId, accessToken, refreshToken } = createSessionTokens(user);
+  const tokens = await issueSession(user);
 
-  await prisma.session.create({
-    data: {
-      id: sessionId,
-      userId: user.id,
-      tokenHash: await hashPassword(refreshToken),
-      expiresAt: new Date(Date.now() + 7 * 24 * 60 * 60 * 1000), // 7 days
-    },
-  });
-
-  return {
-    accessToken,
-    refreshToken,
-    user: {
-      id: user.id,
-      email: user.email,
-      username: user.username,
-      displayName: user.displayName,
-      role: user.role,
-    },
-  };
+  return { ...tokens, user: toPublicUser(user) };
 };
 
 export const login = async (input: LoginInput) => {
   const user = await prisma.user.findUnique({
-    where: {
-      email: input.email,
-    },
+    where: { email: input.email },
   });
 
   if (!user || !user.isActive) {
@@ -91,53 +122,25 @@ export const login = async (input: LoginInput) => {
     throw new AppError(401, "Invalid email or password");
   }
 
-  const { sessionId, accessToken, refreshToken } = createSessionTokens(user);
+  const tokens = await issueSession(user);
 
-  await prisma.session.create({
-    data: {
-      id: sessionId,
-      userId: user.id,
-      tokenHash: await hashPassword(refreshToken),
-      expiresAt: new Date(Date.now() + 7 * 24 * 60 * 60 * 1000), // 7 days
-    },
-  });
-
-  return {
-    accessToken,
-    refreshToken,
-    user: {
-      id: user.id,
-      email: user.email,
-      username: user.username,
-      displayName: user.displayName,
-      role: user.role,
-    },
-  };
+  return { ...tokens, user: toPublicUser(user) };
 };
 
 export const refresh = async (input: RefreshInput) => {
   let payload;
   try {
     payload = verifyRefreshToken(input.refreshToken);
-  } catch (error) {
+  } catch {
     throw new AppError(401, "Invalid or expired refresh token");
   }
 
   const session = await prisma.session.findUnique({
-    where: {
-      id: payload.sid,
-    },
-    include: {
-      user: true,
-    },
+    where: { id: payload.sid },
+    include: { user: true },
   });
 
-  if (
-    !session ||
-    session.revokedAt !== null ||
-    session.expiresAt < new Date() ||
-    !session.user.isActive
-  ) {
+  if (!session || !session.user.isActive) {
     throw new AppError(401, "Session invalid or expired");
   }
 
@@ -150,50 +153,53 @@ export const refresh = async (input: RefreshInput) => {
     throw new AppError(401, "Invalid refresh token");
   }
 
-  // Revoke current session (Rotate refresh token)
-  await prisma.session.update({
-    where: { id: session.id },
+  // Token sah tapi sesinya sudah dicabut = token lama dipakai ulang.
+  // Asumsikan token bocor dan cabut seluruh sesi user.
+  if (session.revokedAt !== null) {
+    await revokeAllSessions(session.userId);
+
+    logger.warn("Refresh token reuse terdeteksi, seluruh sesi dicabut", {
+      userId: session.userId,
+      sessionId: session.id,
+    });
+
+    throw new AppError(
+      401,
+      "Sesi tidak valid. Semua sesi telah dicabut demi keamanan, silakan login kembali.",
+    );
+  }
+
+  if (session.expiresAt < new Date()) {
+    throw new AppError(401, "Session invalid or expired");
+  }
+
+  // Rotasi: cabut sesi lama, berikan sesi baru.
+  // updateMany + filter revokedAt memastikan hanya satu request yang menang
+  // jika dua refresh datang bersamaan dengan token yang sama.
+  const rotated = await prisma.session.updateMany({
+    where: { id: session.id, revokedAt: null },
     data: { revokedAt: new Date() },
   });
 
-  // Create new session & tokens
-  const { sessionId, accessToken, refreshToken } = createSessionTokens(
-    session.user,
-  );
+  if (rotated.count === 0) {
+    throw new AppError(401, "Session invalid or expired");
+  }
 
-  await prisma.session.create({
-    data: {
-      id: sessionId,
-      userId: session.userId,
-      tokenHash: await hashPassword(refreshToken),
-      expiresAt: new Date(Date.now() + 7 * 24 * 60 * 60 * 1000), // 7 days
-    },
-  });
-
-  return {
-    accessToken,
-    refreshToken,
-  };
+  return issueSession(session.user);
 };
 
 export const logout = async (input: RefreshInput) => {
   let payload;
   try {
     payload = verifyRefreshToken(input.refreshToken);
-  } catch (error) {
+  } catch {
     throw new AppError(401, "Invalid refresh token");
   }
 
-  const session = await prisma.session.findUnique({
-    where: { id: payload.sid },
+  await prisma.session.updateMany({
+    where: { id: payload.sid, userId: payload.sub, revokedAt: null },
+    data: { revokedAt: new Date() },
   });
-
-  if (session && session.revokedAt === null) {
-    await prisma.session.update({
-      where: { id: session.id },
-      data: { revokedAt: new Date() },
-    });
-  }
 
   return { message: "Successfully logged out" };
 };

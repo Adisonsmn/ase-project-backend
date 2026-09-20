@@ -36,7 +36,7 @@ model User {
 model Session {
   id          String    @id @default(uuid())
   userId      String
-  tokenHash   String    @unique
+  tokenHash   String
   expiresAt   DateTime
   revokedAt   DateTime?
   createdAt   DateTime  @default(now())

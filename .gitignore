@@ -25,6 +25,8 @@ build/
 
 # Database Dumps & Local Databases
 *.sql
+# ...kecuali migrasi Prisma, yang WAJIB ikut ter-commit
+!prisma/migrations/**/*.sql
 *.sqlite
 *.sqlite3
 *.db
@@ -58,5 +60,7 @@ Thumbs.db
 desktop.ini
 
 # Project Specific
+# Dokumen produk disimpan di luar repo (bukan artefak kode)
+PRD.md
 /generated/prisma
 .agents/
