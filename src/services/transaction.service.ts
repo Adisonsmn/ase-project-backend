@@ -17,6 +17,7 @@ const transactionSelect = {
   note: true,
   occurredAt: true,
   createdAt: true,
+  goalId: true,
   category: {
     select: { id: true, name: true, icon: true, type: true },
   },
@@ -29,6 +30,7 @@ type RawTransaction = {
   note: string | null;
   occurredAt: Date;
   createdAt: Date;
+  goalId: string | null;
   category: {
     id: string;
     name: string;
@@ -67,6 +69,38 @@ const resolveCategoryId = async (
   return category.id;
 };
 
+/**
+ * Memastikan target ada dan milik user. Hanya pengeluaran yang boleh ditautkan
+ * ke target: menautkan pemasukan akan membuat progress tabungan terhitung dua
+ * kali, sekali saat uang masuk dan sekali saat ditabung.
+ */
+const resolveGoalId = async (
+  userId: string,
+  goalId: string | null | undefined,
+  type: "INCOME" | "EXPENSE",
+) => {
+  if (goalId === undefined) return undefined;
+  if (goalId === null) return null;
+
+  if (type !== "EXPENSE") {
+    throw new AppError(
+      400,
+      "Hanya transaksi pengeluaran (menyisihkan uang) yang bisa ditautkan ke target tabungan.",
+    );
+  }
+
+  const goal = await prisma.savingGoal.findFirst({
+    where: { id: goalId, userId },
+    select: { id: true },
+  });
+
+  if (!goal) {
+    throw new AppError(404, "Target tidak ditemukan");
+  }
+
+  return goal.id;
+};
+
 /** Memastikan transaksi ada DAN milik user yang meminta. */
 const getOwnedTransaction = async (userId: string, id: string) => {
   const transaction = await prisma.transaction.findFirst({
@@ -90,10 +124,13 @@ export const createTransaction = async (
     input.type,
   );
 
+  const goalId = await resolveGoalId(userId, input.goalId, input.type);
+
   const transaction = await prisma.transaction.create({
     data: {
       userId,
       categoryId,
+      goalId,
       type: input.type,
       amount: toDecimal(input.amount),
       note: input.note,
@@ -170,6 +207,8 @@ export const updateTransaction = async (
       ? undefined
       : await resolveCategoryId(userId, categoryIdToCheck, nextType);
 
+  const goalId = await resolveGoalId(userId, input.goalId, nextType);
+
   const transaction = await prisma.transaction.update({
     where: { id },
     data: {
@@ -178,6 +217,7 @@ export const updateTransaction = async (
       ...(input.note !== undefined && { note: input.note }),
       ...(input.occurredAt !== undefined && { occurredAt: input.occurredAt }),
       ...(categoryId !== undefined && { categoryId }),
+      ...(goalId !== undefined && { goalId }),
     },
     select: transactionSelect,
   });
