@@ -1,23 +1,8 @@
 import { z } from "zod";
-import { transactionTypeSchema } from "./common.schema";
+import { transactionTypeSchema, moneySchema } from "./common.schema";
 import { endOfToday } from "../utils/datetime";
 
-/** Batas Decimal(14,2): 12 digit di depan koma. */
-const MAX_AMOUNT = 999_999_999_999.99;
-
-/**
- * Nominal diterima sebagai string maupun number, lalu dinormalkan ke string
- * agar presisi tidak hilang sebelum masuk ke Decimal.
- */
-const amount = z
-  .union([z.string(), z.number()])
-  .transform((value) => String(value).trim())
-  .refine(
-    (value) => /^\d+(\.\d{1,2})?$/.test(value),
-    "Nominal harus angka positif dengan maksimal 2 angka desimal",
-  )
-  .refine((value) => Number(value) > 0, "Nominal harus lebih dari 0")
-  .refine((value) => Number(value) <= MAX_AMOUNT, "Nominal terlalu besar");
+const amount = moneySchema;
 
 /** Terima "YYYY-MM-DD" maupun ISO datetime lengkap. */
 const occurredAt = z
