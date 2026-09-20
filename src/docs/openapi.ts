@@ -12,6 +12,10 @@ import {
   updateCategorySchema,
 } from "../schemas/category.schema";
 import {
+  calculateRatioSchema,
+  saveRatioSchema,
+} from "../schemas/savings.schema";
+import {
   createTransactionSchema,
   updateTransactionSchema,
   listTransactionQuerySchema,
@@ -98,7 +102,7 @@ const errorResponse = (description: string) => ({
 });
 
 type RouteSpec = {
-  method: "get" | "post" | "patch" | "delete";
+  method: "get" | "post" | "patch" | "put" | "delete";
   path: string;
   tag: string;
   summary: string;
@@ -217,6 +221,42 @@ const routes: RouteSpec[] = [
   },
 
   {
+    method: "get",
+    path: "/api/v1/savings/ratio/presets",
+    tag: "Rasio Menabung",
+    summary: "Daftar preset rasio (60:30:10, 50:30:20, 70:20:10)",
+    successDescription: "Daftar preset beserta rasio default",
+  },
+  {
+    method: "post",
+    path: "/api/v1/savings/ratio/calculate",
+    tag: "Rasio Menabung",
+    summary:
+      "Hitung alokasi dana. Hasilnya tidak disimpan. Prioritas rasio: kustom > preset > tersimpan > default",
+    auth: true,
+    schema: calculateRatioSchema,
+    successDescription:
+      "Alokasi per periode input dan setara bulanan, beserta tips kontekstual",
+  },
+  {
+    method: "get",
+    path: "/api/v1/savings/ratio",
+    tag: "Rasio Menabung",
+    summary: "Rasio tersimpan milik user (null kalau belum pernah menyimpan)",
+    auth: true,
+    successDescription: "Rasio tersimpan, atau null beserta rasio default",
+  },
+  {
+    method: "put",
+    path: "/api/v1/savings/ratio",
+    tag: "Rasio Menabung",
+    summary: "Simpan atau ubah rasio kustom. Satu rasio per user",
+    auth: true,
+    schema: saveRatioSchema,
+    successDescription: "Rasio setelah disimpan",
+  },
+
+  {
     method: "post",
     path: "/api/v1/transactions",
     tag: "Transaksi",
@@ -287,7 +327,10 @@ export const buildOpenApiDocument = () => {
 
     // Endpoint GET/DELETE tidak mengirim body walau schema-nya punya bagian body
     // (schema-nya dipakai ulang hanya untuk parameter :id).
-    const sendsBody = route.method === "post" || route.method === "patch";
+    const sendsBody =
+      route.method === "post" ||
+      route.method === "patch" ||
+      route.method === "put";
 
     const operation: Record<string, unknown> = {
       tags: [route.tag],
@@ -330,6 +373,7 @@ export const buildOpenApiDocument = () => {
       { name: "Auth", description: "Registrasi, login, rotasi token" },
       { name: "User", description: "Profil pengguna" },
       { name: "Kategori", description: "Kategori transaksi (F-07)" },
+      { name: "Rasio Menabung", description: "Saran alokasi dana (F-01..F-03)" },
       { name: "Transaksi", description: "Catatan keuangan & laporan (F-07..F-09)" },
     ],
     components: {

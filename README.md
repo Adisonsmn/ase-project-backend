@@ -108,6 +108,10 @@ dari schema Zod yang dipakai untuk validasi, jadi tidak bisa melenceng dari peri
 | POST   | `/api/v1/categories`            | ✔    | Tambah kategori kustom                           |
 | PATCH  | `/api/v1/categories/:id`        | ✔    | Ubah kategori sendiri                            |
 | DELETE | `/api/v1/categories/:id`        | ✔    | Hapus kategori; transaksinya pindah ke Lain-lain |
+| GET    | `/api/v1/savings/ratio/presets` | –    | Preset rasio 60:30:10, 50:30:20, 70:20:10        |
+| POST   | `/api/v1/savings/ratio/calculate` | ✔  | Hitung alokasi dana (tidak disimpan)             |
+| GET    | `/api/v1/savings/ratio`         | ✔    | Rasio tersimpan milik user                       |
+| PUT    | `/api/v1/savings/ratio`         | ✔    | Simpan/ubah rasio kustom                         |
 | POST   | `/api/v1/transactions`          | ✔    | Catat transaksi                                  |
 | GET    | `/api/v1/transactions`          | ✔    | Riwayat + filter + pagination                    |
 | GET    | `/api/v1/transactions/summary`  | ✔    | Ringkasan & data grafik                          |
@@ -133,6 +137,15 @@ dalam UTC; konversi dilakukan saat agregasi.
 
 **Filter tanggal bersifat inklusif** — `?from=2026-09-19&to=2026-09-19` mencakup
 seluruh hari tersebut dalam waktu WIB.
+
+**Alokasi rasio selalu berjumlah persis sama dengan pemasukan.** Tiap bagian
+dibulatkan ke bawah ke rupiah penuh, lalu sisa pembulatan diberikan ke kategori
+kebutuhan. Tanpa ini, rasio seperti 33:33:34 atas Rp 100.000 bisa menghasilkan
+total Rp 99.999.
+
+**Konversi ke bulanan** memakai faktor harian × 30 dan mingguan × 4,345
+(= 365 ÷ 7 ÷ 12). Memakai 4 untuk mingguan akan kehilangan sekitar satu bulan
+pemasukan per tahun.
 
 Format error konsisten:
 
