@@ -20,6 +20,8 @@ export const createTransactionSchema = z.object({
     type: transactionTypeSchema,
     amount,
     categoryId: z.uuid("Format categoryId tidak valid").optional(),
+    /** Tautkan transaksi tabungan ke sebuah target (F-04). */
+    goalId: z.uuid("Format goalId tidak valid").nullable().optional(),
     note: note.optional(),
     occurredAt,
   }),
@@ -32,6 +34,8 @@ export const updateTransactionSchema = z.object({
       type: transactionTypeSchema.optional(),
       amount: amount.optional(),
       categoryId: z.uuid("Format categoryId tidak valid").optional(),
+      // null dipakai untuk melepas tautan ke target.
+      goalId: z.uuid("Format goalId tidak valid").nullable().optional(),
       note: note.optional(),
       occurredAt: occurredAt.optional(),
     })

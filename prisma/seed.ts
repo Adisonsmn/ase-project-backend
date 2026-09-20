@@ -1,5 +1,6 @@
 import { prisma } from "../src/config/database";
 import type { TransactionType } from "../generated/prisma/enums";
+import { incomeIdeas } from "./seeds/income-ideas";
 
 /**
  * Kategori bawaan sistem (userId = null), dipakai bersama semua user.
@@ -54,8 +55,32 @@ const seed = async () => {
     });
   }
 
-  const total = await prisma.category.count({ where: { isSystem: true } });
-  console.log(`Seed selesai. Kategori sistem: ${total}`);
+  const totalCategories = await prisma.category.count({
+    where: { isSystem: true },
+  });
+  console.log(`Kategori sistem: ${totalCategories}`);
+
+  for (const idea of incomeIdeas) {
+    const data = {
+      title: idea.title,
+      description: idea.description,
+      ageGroup: idea.ageGroup,
+      estMonthlyMin: idea.estMonthlyMin,
+      estMonthlyMax: idea.estMonthlyMax,
+      effortLevel: idea.effortLevel,
+      isActive: true,
+    };
+
+    await prisma.incomeIdea.upsert({
+      where: { id: idea.id },
+      create: { id: idea.id, ...data },
+      update: data,
+    });
+  }
+
+  const totalIdeas = await prisma.incomeIdea.count();
+  console.log(`Ide penambahan income: ${totalIdeas}`);
+  console.log("Seed selesai.");
 };
 
 seed()

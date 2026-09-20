@@ -12,6 +12,12 @@ import {
   updateCategorySchema,
 } from "../schemas/category.schema";
 import {
+  createGoalSchema,
+  updateGoalSchema,
+  listGoalQuerySchema,
+  listIncomeIdeaQuerySchema,
+} from "../schemas/goal.schema";
+import {
   calculateRatioSchema,
   saveRatioSchema,
 } from "../schemas/savings.schema";
@@ -258,6 +264,75 @@ const routes: RouteSpec[] = [
 
   {
     method: "post",
+    path: "/api/v1/goals",
+    tag: "Target Tabungan",
+    summary: "Buat target tabungan",
+    auth: true,
+    schema: createGoalSchema,
+    successStatus: 201,
+    successDescription: "Target dibuat",
+  },
+  {
+    method: "get",
+    path: "/api/v1/goals",
+    tag: "Target Tabungan",
+    summary: "Daftar target, target utama di urutan pertama",
+    auth: true,
+    schema: listGoalQuerySchema,
+    successDescription: "Daftar target",
+  },
+  {
+    method: "get",
+    path: "/api/v1/goals/{id}",
+    tag: "Target Tabungan",
+    summary: "Detail target. Progress disegarkan dari transaksi bertaut",
+    auth: true,
+    schema: updateGoalSchema,
+    successDescription: "Detail target beserta progress terbaru",
+  },
+  {
+    method: "get",
+    path: "/api/v1/goals/{id}/gap",
+    tag: "Target Tabungan",
+    summary:
+      "Analisis kesenjangan menuju target, beserta rekomendasi penambahan income sesuai kelompok usia",
+    auth: true,
+    schema: updateGoalSchema,
+    successDescription:
+      "Kebutuhan per bulan, kemampuan, gap, saran, dan daftar ide income",
+  },
+  {
+    method: "patch",
+    path: "/api/v1/goals/{id}",
+    tag: "Target Tabungan",
+    summary: "Ubah target",
+    auth: true,
+    schema: updateGoalSchema,
+    successDescription: "Target setelah diperbarui",
+  },
+  {
+    method: "delete",
+    path: "/api/v1/goals/{id}",
+    tag: "Target Tabungan",
+    summary:
+      "Hapus target. Transaksinya tidak ikut terhapus, hanya tautannya yang dilepas",
+    auth: true,
+    schema: updateGoalSchema,
+    successDescription: "Target dihapus beserta jumlah transaksi yang dilepas",
+  },
+  {
+    method: "get",
+    path: "/api/v1/income-ideas",
+    tag: "Target Tabungan",
+    summary:
+      "Daftar ide penambahan income. Kelompok usia diambil dari profil kalau tidak disebutkan",
+    auth: true,
+    schema: listIncomeIdeaQuerySchema,
+    successDescription: "Daftar ide, diurutkan berdasarkan kecocokan dengan gap",
+  },
+
+  {
+    method: "post",
     path: "/api/v1/transactions",
     tag: "Transaksi",
     summary: "Catat transaksi",
@@ -374,6 +449,10 @@ export const buildOpenApiDocument = () => {
       { name: "User", description: "Profil pengguna" },
       { name: "Kategori", description: "Kategori transaksi (F-07)" },
       { name: "Rasio Menabung", description: "Saran alokasi dana (F-01..F-03)" },
+      {
+        name: "Target Tabungan",
+        description: "Goal, analisis gap, dan saran income (F-04..F-06)",
+      },
       { name: "Transaksi", description: "Catatan keuangan & laporan (F-07..F-09)" },
     ],
     components: {
