@@ -54,7 +54,18 @@ Backend API untuk aplikasi edukasi literasi keuangan.
 ## ☁️ Deploy
 
 Aplikasi dikemas sebagai container dan dijalankan di Azure Container Apps.
-Panduan lengkapnya ada di [DEPLOY.md](DEPLOY.md).
+Panduan setup awal ada di [DEPLOY.md](DEPLOY.md).
+
+Untuk deploy perubahan berikutnya, cukup satu perintah:
+
+```powershell
+./scripts/deploy.ps1
+```
+
+Skrip itu menjalankan typecheck dan test lebih dulu, lalu membangun image,
+mengunggahnya, dan memperbarui container app. Image diberi tag sesuai commit
+git yang aktif, sehingga setiap revisi di Azure bisa ditelusuri balik ke kode
+persisnya.
 
 ## 📜 Skrip
 
