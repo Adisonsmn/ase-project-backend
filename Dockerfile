@@ -19,9 +19,10 @@ RUN bun install --frozen-lockfile
 FROM base AS runtime
 ENV NODE_ENV=production
 # Port dikunci eksplisit agar selalu cocok dengan EXPOSE dan --target-port di
-# Azure. Tanpa ini, PORT yang tidak sengaja terbawa dari environment lain
-# membuat container sehat di dalam tapi tidak bisa dijangkau dari luar.
-ENV PORT=3000
+# Azure. Kalau nilai ini diubah, --target-port saat deploy WAJIB ikut diubah:
+# kalau tidak cocok, container sehat di dalam tapi tidak bisa dijangkau dari
+# luar, dan log tetap menunjukkan server berjalan normal.
+ENV PORT=3001
 
 COPY . .
 COPY --from=deps /app/node_modules ./node_modules
@@ -30,7 +31,7 @@ COPY --from=deps /app/generated ./generated
 # Image oven/bun sudah menyediakan user non-root bernama "bun".
 USER bun
 
-EXPOSE 3000
+EXPOSE 3001
 
 # Migrasi dijalankan lebih dulu; kalau gagal, container berhenti dan versi lama
 # tetap melayani. `exec` membuat bun menjadi PID 1 sehingga SIGTERM diterima
