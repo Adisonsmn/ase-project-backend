@@ -48,7 +48,7 @@ az containerapp up \
   --location southeastasia \
   --source . \
   --ingress external \
-  --target-port 3000
+  --target-port 3001
 ```
 
 Satu perintah ini membuat Container Apps environment, membuat container
@@ -91,8 +91,8 @@ az containerapp update \
     JWT_REFRESH_SECRET=secretref:jwt-refresh
 ```
 
-**Jangan set `PORT`.** Container sudah memakai 3000, sesuai `--target-port` di
-langkah 2. Kalau `PORT` diisi nilai lain, aplikasi tetap sehat di dalam
+**Jangan set `PORT`.** Container sudah memakai 3001 (lihat `ENV PORT` di
+`Dockerfile`), sesuai `--target-port` di langkah 2. Kalau `PORT` diisi nilai lain, aplikasi tetap sehat di dalam
 container tapi tidak bisa dijangkau dari luar — gejalanya membingungkan karena
 log menunjukkan server berjalan normal.
 
@@ -243,7 +243,7 @@ migrasi gagal.
 docker build -t ase-backend:local .
 
 # env file TANPA tanda kutip, dan TANPA baris PORT
-docker run --rm -p 3000:3000 --env-file .env.docker ase-backend:local
+docker run --rm -p 3001:3001 --env-file .env.docker ase-backend:local
 
-curl http://localhost:3000/health/ready
+curl http://localhost:3001/health/ready
 ```
