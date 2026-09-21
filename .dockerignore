@@ -1,0 +1,27 @@
+# Dependensi & hasil generate — dibangun ulang di dalam image
+node_modules
+generated
+
+# Rahasia — JANGAN pernah ikut ke dalam image
+.env
+.env.*
+!.env.example
+
+# Git & tooling
+.git
+.gitignore
+.vscode
+.agents
+.claude
+
+# Berkas yang tidak dibutuhkan saat runtime
+tests
+*.test.ts
+bunfig.toml
+README.md
+PRD.md
+Dockerfile
+.dockerignore
+railway.json
+coverage
+*.log

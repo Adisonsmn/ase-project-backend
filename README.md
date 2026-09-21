@@ -51,6 +51,11 @@ Backend API untuk aplikasi edukasi literasi keuangan.
    bun start              # production
    ```
 
+## ☁️ Deploy
+
+Aplikasi dikemas sebagai container dan dijalankan di Azure Container Apps.
+Panduan lengkapnya ada di [DEPLOY.md](DEPLOY.md).
+
 ## 📜 Skrip
 
 | Perintah              | Keterangan                            |
