@@ -125,3 +125,4 @@ dari schema Zod yang dipakai untuk validasi, jadi tidak bisa melenceng dari peri
 | GET    | `/api/v1/transactions/:id`      | ✔    | Detail transaksi                                 |
 | PATCH  | `/api/v1/transactions/:id`      | ✔    | Ubah transaksi                                   |
 | DELETE | `/api/v1/transactions/:id`      | ✔    | Hapus transaksi                                  |
+
