@@ -86,14 +86,31 @@ managed identity, juga tanpa password.
 Secret aplikasi disimpan sebagai secret Container Apps, tidak pernah masuk repo:
 
 ```bash
-az containerapp secret set -n ase-backend -g ase-backend-rg   --secrets database-url="postgresql://..."
+az containerapp secret set -n ase-backend -g ase-backend-rg --secrets database-url="postgresql://..."
 ```
 
 `CORS_ORIGIN` wajib menunjuk ke origin frontend produksi (server menolak start
-kalau kosong saat `NODE_ENV=production`):
+kalau kosong saat `NODE_ENV=production`). Nilainya sekarang
+`http://localhost:3000`; ganti saat frontend sudah punya domain.
+
+Tulis origin **tanpa garis miring di akhir**: browser mengirim header `Origin`
+berbentuk `https://contoh.com`, dan daftar ini dicocokkan persis sama, sehingga
+`https://contoh.com/` tidak akan pernah cocok.
 
 ```bash
-az containerapp update -n ase-backend -g ase-backend-rg   --set-env-vars CORS_ORIGIN=https://domain-frontend-anda
+az containerapp update -n ase-backend -g ase-backend-rg --set-env-vars CORS_ORIGIN=https://domain-frontend-anda
+```
+
+### Skala & biaya
+
+`min-replicas` diset **0**, jadi container tidur saat tidak ada permintaan dan
+nyaris tidak memakan kredit. Konsekuensinya request pertama setelah idle butuh
+sekitar 10-15 detik: container start ulang dan menjalankan `prisma migrate
+deploy` lebih dulu. Ini perilaku normal, bukan gangguan. Kalau butuh respons
+cepat setiap saat (misalnya saat demo), nyalakan terus:
+
+```bash
+az containerapp update -n ase-backend -g ase-backend-rg --min-replicas 1
 ```
 
 ### Operasi harian
@@ -103,10 +120,10 @@ az containerapp update -n ase-backend -g ase-backend-rg   --set-env-vars CORS_OR
 az containerapp logs show -n ase-backend -g ase-backend-rg --follow
 
 # Daftar revisi beserta image-nya
-az containerapp revision list -n ase-backend -g ase-backend-rg   --query '[].{revisi:name,image:properties.template.containers[0].image,aktif:properties.active}' -o table
+az containerapp revision list -n ase-backend -g ase-backend-rg --query '[].{revisi:name,image:properties.template.containers[0].image,aktif:properties.active}' -o table
 
 # Rollback: pasang kembali image dari commit sebelumnya
-az containerapp update -n ase-backend -g ase-backend-rg   --image asebackendacr01.azurecr.io/ase-backend:<sha-lama>
+az containerapp update -n ase-backend -g ase-backend-rg --image asebackendacr01.azurecr.io/ase-backend:<sha-lama>
 ```
 
 ## 📜 Skrip
