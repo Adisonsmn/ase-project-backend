@@ -1,11 +1,11 @@
 # Gerbang kualitas untuk kode yang belum masuk main.
 name: CI
 
+# Hanya pull_request. Kalau push ikut dipicu, setiap dorongan ke branch yang
+# sudah punya PR akan menjalankan tes dua kali dengan hasil yang sama persis.
+# Push ke main sendiri sudah diuji oleh workflow Deploy sebelum deploy jalan.
 on:
   pull_request:
-  push:
-    branches-ignore:
-      - main
 
 # Push baru ke branch yang sama membatalkan run lama: hasilnya sudah usang.
 concurrency:
