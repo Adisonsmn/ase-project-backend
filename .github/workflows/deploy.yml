@@ -37,6 +37,18 @@ jobs:
       # sehingga tidak ada password Azure yang perlu disimpan di GitHub.
       id-token: write
 
+    # PENTING: memakai `environment` mengubah subject pada token OIDC. Subject
+    # tidak lagi berbentuk `...:ref:refs/heads/main`, melainkan
+    # `...:environment:production`. Federated credential di Azure harus cocok
+    # persis, kalau tidak login gagal dengan AADSTS700213 - dan pesannya sama
+    # sekali tidak menyinggung blok ini sebagai penyebab.
+    #
+    # Repo ini juga memakai format subject ber-ID, sehingga nilai lengkapnya:
+    #   repo:Adisonsmn@140268974/ase-project-backend@1361243275:environment:production
+    #
+    # Kalau blok ini dihapus atau namanya diganti, federated credential
+    # `github-env-production` di app registration `ase-backend-github-actions`
+    # wajib ikut disesuaikan.
     environment:
       name: production
       url: https://${{ steps.deploy.outputs.fqdn }}
