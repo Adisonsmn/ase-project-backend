@@ -1,0 +1,29 @@
+# Definisi tes dipakai bersama oleh CI (pull request) dan Deploy (push ke main).
+# Ditaruh di satu berkas supaya gerbang kualitas sebelum deploy tidak pernah
+# menyimpang dari apa yang diperiksa saat review.
+name: Tests
+
+on:
+  workflow_call:
+
+jobs:
+  test:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+
+      - uses: oven-sh/setup-bun@v2
+        with:
+          bun-version: 1.3.13
+
+      # postinstall menjalankan `prisma generate`. Tidak butuh DATABASE_URL,
+      # jadi tidak ada secret yang perlu dipasang di job ini.
+      - run: bun install --frozen-lockfile
+
+      - name: Typecheck
+        run: bun run typecheck
+
+      # tests/setup.ts (preload lewat bunfig.toml) memasang sendiri semua env
+      # yang dibutuhkan, termasuk DATABASE_URL palsu.
+      - name: Test
+        run: bun test

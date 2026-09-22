@@ -1,0 +1,17 @@
+# Gerbang kualitas untuk kode yang belum masuk main.
+name: CI
+
+on:
+  pull_request:
+  push:
+    branches-ignore:
+      - main
+
+# Push baru ke branch yang sama membatalkan run lama: hasilnya sudah usang.
+concurrency:
+  group: ci-${{ github.ref }}
+  cancel-in-progress: true
+
+jobs:
+  test:
+    uses: ./.github/workflows/tests.yml

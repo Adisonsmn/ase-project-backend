@@ -51,10 +51,63 @@ Backend API untuk aplikasi edukasi literasi keuangan.
    bun start              # production
    ```
 
-## ☁️ Deploy
+## ☁️ Deploy & CI/CD
 
-Aplikasi dikemas sebagai container dan dijalankan di Azure Container Apps.
-Panduan lengkapnya ada di [DEPLOY.md](DEPLOY.md).
+Setiap push ke `main` otomatis di-deploy ke Azure Container Apps oleh
+[.github/workflows/deploy.yml](.github/workflows/deploy.yml):
+
+1. Typecheck dan test dijalankan lebih dulu; kalau gagal, deploy dibatalkan.
+2. Image dibangun dari `Dockerfile`, diberi tag commit SHA, lalu didorong ke ACR.
+3. Container app diperbarui ke image tersebut.
+4. `/health/ready` dipanggil sampai membalas 200. Container app melaporkan
+   "berhasil" begitu revisi diterima, bukan begitu aplikasinya siap melayani —
+   tanpa langkah ini, deploy yang crash saat migrasi Prisma tetap terlihat hijau.
+
+Pull request hanya menjalankan tes ([ci.yml](.github/workflows/ci.yml)). Definisi
+tesnya dipakai bersama lewat [tests.yml](.github/workflows/tests.yml) supaya
+gerbang sebelum deploy tidak pernah menyimpang dari yang diperiksa saat review.
+
+| Sumber daya    | Nilai                                                          |
+| -------------- | -------------------------------------------------------------- |
+| Resource group | `ase-backend-rg` (East Asia)                                    |
+| Container app  | `ase-backend`                                                   |
+| Environment    | `ase-backend-env-wp`                                            |
+| Registry       | `asebackendacr01.azurecr.io`                                    |
+| URL            | <https://ase-backend.lemonplant-9c3a5aca.eastasia.azurecontainerapps.io> |
+
+GitHub Actions login ke Azure lewat OIDC (federated credential), jadi **tidak ada
+password Azure yang tersimpan di GitHub**. Tiga secret repo yang dipakai
+(`AZURE_CLIENT_ID`, `AZURE_TENANT_ID`, `AZURE_SUBSCRIPTION_ID`) hanyalah
+identifier, bukan kredensial. Container app menarik image dari ACR memakai
+managed identity, juga tanpa password.
+
+### Konfigurasi runtime
+
+Secret aplikasi disimpan sebagai secret Container Apps, tidak pernah masuk repo:
+
+```bash
+az containerapp secret set -n ase-backend -g ase-backend-rg   --secrets database-url="postgresql://..."
+```
+
+`CORS_ORIGIN` wajib menunjuk ke origin frontend produksi (server menolak start
+kalau kosong saat `NODE_ENV=production`):
+
+```bash
+az containerapp update -n ase-backend -g ase-backend-rg   --set-env-vars CORS_ORIGIN=https://domain-frontend-anda
+```
+
+### Operasi harian
+
+```bash
+# Log berjalan
+az containerapp logs show -n ase-backend -g ase-backend-rg --follow
+
+# Daftar revisi beserta image-nya
+az containerapp revision list -n ase-backend -g ase-backend-rg   --query '[].{revisi:name,image:properties.template.containers[0].image,aktif:properties.active}' -o table
+
+# Rollback: pasang kembali image dari commit sebelumnya
+az containerapp update -n ase-backend -g ase-backend-rg   --image asebackendacr01.azurecr.io/ase-backend:<sha-lama>
+```
 
 ## 📜 Skrip
 
