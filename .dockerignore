@@ -12,6 +12,7 @@ generated
 .gitignore
 .vscode
 .agents
+.github
 .claude
 
 # Berkas yang tidak dibutuhkan saat runtime
