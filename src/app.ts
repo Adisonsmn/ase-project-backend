@@ -12,6 +12,10 @@ import savingsRoutes from "./routes/savings.routes";
 import goalRoutes from "./routes/goal.routes";
 import incomeIdeaRoutes from "./routes/income-idea.routes";
 import docsRoutes from "./routes/docs.routes";
+import articleRoutes from "./routes/article.routes";
+import articleCategoryRoutes from "./routes/article-category.routes";
+import bookmarkRoutes from "./routes/bookmark.routes";
+import adminRoutes from "./routes/admin.routes";
 import { requestIdMiddleware } from "./middlewares/request-id.middleware";
 import {
   errorMiddleware,
@@ -52,6 +56,10 @@ app.use("/api/v1/transactions", transactionRoutes);
 app.use("/api/v1/savings", savingsRoutes);
 app.use("/api/v1/goals", goalRoutes);
 app.use("/api/v1/income-ideas", incomeIdeaRoutes);
+app.use("/api/v1/articles", articleRoutes);
+app.use("/api/v1/article-categories", articleCategoryRoutes);
+app.use("/api/v1/bookmarks", bookmarkRoutes);
+app.use("/api/v1/admin", adminRoutes);
 app.use("/api/v1/docs", docsRoutes);
 
 // 6. Handler 404 & error global

@@ -42,6 +42,12 @@ enum AgeGroup {
   GENERAL
 }
 
+/// Hanya PUBLISHED yang tampil ke publik.
+enum ArticleStatus {
+  DRAFT
+  PUBLISHED
+}
+
 model User {
   id           String    @id @default(uuid())
   email        String    @unique
@@ -60,6 +66,8 @@ model User {
   transactions Transaction[]
   savingRatio  SavingRatio?
   goals        SavingGoal[]
+  articles     Article[]
+  bookmarks    Bookmark[]
 }
 
 model Session {
@@ -194,4 +202,62 @@ model IncomeIdea {
   updatedAt DateTime @updatedAt
 
   @@index([ageGroup, isActive])
+}
+
+/// Kategori artikel. Dikelola lewat seed dengan id tetap, bukan oleh user.
+model ArticleCategory {
+  id        String   @id @default(uuid())
+  slug      String   @unique
+  name      String
+  createdAt DateTime @default(now())
+  updatedAt DateTime @updatedAt
+
+  articles Article[]
+}
+
+/// Artikel keuangan yang dikurasi manual oleh admin (F-14).
+model Article {
+  id           String        @id @default(uuid())
+  /// Dipakai sebagai URL detail. Tidak berubah saat judul diubah, supaya
+  /// tautan yang sudah dibagikan tidak putus.
+  slug         String        @unique
+  title        String
+  summary      String
+  content      String
+  thumbnailUrl String?
+  /// Atribusi sumber untuk tulisan yang merangkum media lain (mitigasi hak
+  /// cipta, PRD bagian 9).
+  sourceName   String?
+  sourceUrl    String?
+  categoryId   String
+  /// Admin yang menulis. Dilepas, bukan ikut terhapus, kalau akunnya dihapus.
+  authorId     String?
+  status       ArticleStatus @default(DRAFT)
+  /// Diisi saat pertama kali terbit dan tidak diubah lagi, sehingga urutan
+  /// daftar tidak melompat setiap kali artikel diterbitkan ulang.
+  publishedAt  DateTime?
+  createdAt    DateTime      @default(now())
+  updatedAt    DateTime      @updatedAt
+
+  // Restrict: kategori yang masih berisi artikel tidak boleh terhapus diam-diam.
+  category  ArticleCategory @relation(fields: [categoryId], references: [id], onDelete: Restrict)
+  author    User?           @relation(fields: [authorId], references: [id], onDelete: SetNull)
+  bookmarks Bookmark[]
+
+  @@index([status, publishedAt])
+  @@index([categoryId, status, publishedAt])
+}
+
+/// Artikel favorit milik user (F-16).
+model Bookmark {
+  id        String   @id @default(uuid())
+  userId    String
+  articleId String
+  createdAt DateTime @default(now())
+
+  user    User    @relation(fields: [userId], references: [id], onDelete: Cascade)
+  article Article @relation(fields: [articleId], references: [id], onDelete: Cascade)
+
+  @@unique([userId, articleId])
+  @@index([userId, createdAt])
 }

@@ -135,7 +135,8 @@ az containerapp update -n ase-backend -g ase-backend-rg --image asebackendacr01.
 | `bun test`            | Jalankan test                         |
 | `bun run typecheck`   | Cek tipe TypeScript                   |
 | `bun run db:migrate`  | Buat & terapkan migrasi (development) |
-| `bun run db:seed`     | Isi kategori bawaan & ide income (idempotent) |
+| `bun run db:seed`     | Isi kategori bawaan, ide income, & kategori artikel (idempotent) |
+| `bun run db:set-role -- <email> <USER\|ADMIN>` | Ubah role user, misalnya menjadikan admin |
 | `bun run db:deploy`   | Terapkan migrasi (production)         |
 | `bun run db:generate` | Generate Prisma Client                |
 | `bun run db:studio`   | Buka Prisma Studio                    |
@@ -200,4 +201,39 @@ dari schema Zod yang dipakai untuk validasi, jadi tidak bisa melenceng dari peri
 | GET    | `/api/v1/transactions/:id`      | ✔    | Detail transaksi                                 |
 | PATCH  | `/api/v1/transactions/:id`      | ✔    | Ubah transaksi                                   |
 | DELETE | `/api/v1/transactions/:id`      | ✔    | Hapus transaksi                                  |
+| GET    | `/api/v1/articles`              | –    | Daftar artikel terbit, filter `?category=<slug>` |
+| GET    | `/api/v1/articles/:slug`        | –    | Detail artikel terbit                            |
+| GET    | `/api/v1/article-categories`    | –    | Kategori artikel + jumlah artikel terbit         |
+| POST   | `/api/v1/articles`              | ADMIN | Buat artikel (default `DRAFT`)                  |
+| PATCH  | `/api/v1/articles/:id`          | ADMIN | Ubah artikel / terbitkan                        |
+| DELETE | `/api/v1/articles/:id`          | ADMIN | Hapus artikel                                   |
+| GET    | `/api/v1/admin/articles`        | ADMIN | Semua artikel termasuk draft                    |
+| GET    | `/api/v1/admin/articles/:id`    | ADMIN | Detail artikel berdasarkan id                   |
+| POST   | `/api/v1/articles/:id/bookmark` | ✔    | Tandai artikel (idempotent)                      |
+| DELETE | `/api/v1/articles/:id/bookmark` | ✔    | Hapus tanda (idempotent)                         |
+| GET    | `/api/v1/bookmarks`             | ✔    | Artikel yang ditandai                            |
+
+### Artikel & admin
+
+Artikel dikurasi manual oleh user ber-role `ADMIN`. Belum ada endpoint untuk
+memberi hak admin, dan itu disengaja; promosikan lewat skrip:
+
+```bash
+bun run db:set-role -- email@contoh.com ADMIN
+```
+
+Role baru berlaku setelah user tersebut me-refresh token (atau login ulang).
+
+- Hanya artikel `PUBLISHED` yang tampil ke publik. Draft dijawab `404`.
+- Slug dibuat otomatis dari judul kalau tidak diisi, dan **tidak ikut berubah**
+  saat judul diubah supaya tautan yang sudah dibagikan tidak putus.
+- `publishedAt` diisi sekali saat pertama terbit. Menurunkan ke draft lalu
+  menerbitkan ulang tidak memindahkan artikel ke urutan teratas.
+- `content` disimpan apa adanya. Frontend **jangan** merendernya sebagai HTML
+  mentah; perlakukan sebagai teks atau Markdown yang disanitasi.
+
+**Setelah deploy pertama fitur ini**, jalankan `bun run db:seed` sekali ke
+database produksi. Container hanya menerapkan migrasi saat start, tidak
+menjalankan seed, sehingga tanpa langkah ini kategori artikel kosong dan
+setiap pembuatan artikel ditolak `404`.
 
