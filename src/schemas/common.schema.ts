@@ -34,6 +34,19 @@ export const moneySchema = z
   .refine((value) => Number(value) > 0, "Nominal harus lebih dari 0")
   .refine((value) => Number(value) <= MAX_AMOUNT, "Nominal terlalu besar");
 
+/**
+ * URL http(s) ke domain publik. `z.url()` polos menerima skema apa pun,
+ * termasuk `javascript:` dan `data:`, yang menjadi celah XSS begitu frontend
+ * merendernya sebagai tautan atau gambar.
+ */
+export const httpUrlSchema = z
+  .url({
+    protocol: /^https?$/,
+    hostname: z.regexes.domain,
+    error: "URL harus diawali http:// atau https:// dan memakai nama domain",
+  })
+  .max(2048, "URL maksimal 2048 karakter");
+
 /** Query pagination yang dipakai bersama oleh endpoint berdaftar. */
 export const paginationQuerySchema = z.object({
   page: z.coerce.number().int().min(1).default(1),
