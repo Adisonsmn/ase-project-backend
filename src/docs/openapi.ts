@@ -27,6 +27,15 @@ import {
   listTransactionQuerySchema,
   summaryQuerySchema,
 } from "../schemas/transaction.schema";
+import {
+  adminListArticleQuerySchema,
+  articleIdParamSchema,
+  articleSlugParamSchema,
+  createArticleSchema,
+  listArticleQuerySchema,
+  listBookmarkQuerySchema,
+  updateArticleSchema,
+} from "../schemas/article.schema";
 
 /**
  * Dokumen OpenAPI dibangun langsung dari schema Zod yang dipakai
@@ -387,6 +396,115 @@ const routes: RouteSpec[] = [
     schema: updateTransactionSchema,
     successDescription: "Transaksi dihapus",
   },
+
+  {
+    method: "get",
+    path: "/api/v1/articles",
+    tag: "Artikel",
+    summary:
+      "Daftar artikel terbit, terbaru di atas. Publik. Filter kategori memakai slug",
+    schema: listArticleQuerySchema,
+    successDescription: "Daftar artikel (tanpa isi) + meta pagination",
+  },
+  {
+    method: "get",
+    path: "/api/v1/articles/{slug}",
+    tag: "Artikel",
+    summary: "Detail artikel terbit berdasarkan slug. Publik. Draft dijawab 404",
+    schema: articleSlugParamSchema,
+    successDescription: "Detail artikel beserta isi dan atribusi sumber",
+  },
+  {
+    method: "get",
+    path: "/api/v1/article-categories",
+    tag: "Artikel",
+    summary: "Daftar kategori artikel beserta jumlah artikel terbit. Publik",
+    successDescription: "Daftar kategori",
+  },
+  {
+    method: "post",
+    path: "/api/v1/articles",
+    tag: "Artikel",
+    summary:
+      "Buat artikel (ADMIN). Slug dibuat otomatis dari judul kalau tidak diisi; status default DRAFT",
+    auth: true,
+    admin: true,
+    schema: createArticleSchema,
+    successStatus: 201,
+    successDescription: "Artikel dibuat",
+  },
+  {
+    method: "patch",
+    path: "/api/v1/articles/{id}",
+    tag: "Artikel",
+    summary:
+      "Ubah artikel (ADMIN). Slug tidak ikut berubah saat judul diubah. Kirim null untuk menghapus thumbnail/sumber",
+    auth: true,
+    admin: true,
+    schema: updateArticleSchema,
+    successDescription: "Artikel setelah diperbarui",
+  },
+  {
+    method: "delete",
+    path: "/api/v1/articles/{id}",
+    tag: "Artikel",
+    summary: "Hapus artikel (ADMIN). Bookmark-nya ikut terhapus",
+    auth: true,
+    admin: true,
+    schema: articleIdParamSchema,
+    successDescription: "Artikel dihapus beserta jumlah bookmark yang ikut terhapus",
+  },
+  {
+    method: "get",
+    path: "/api/v1/admin/articles",
+    tag: "Artikel",
+    summary: "Semua artikel termasuk draft (ADMIN), terakhir diubah di atas",
+    auth: true,
+    admin: true,
+    schema: adminListArticleQuerySchema,
+    successDescription: "Daftar artikel beserta status + meta pagination",
+  },
+  {
+    method: "get",
+    path: "/api/v1/admin/articles/{id}",
+    tag: "Artikel",
+    summary: "Detail artikel berdasarkan id, termasuk draft (ADMIN)",
+    auth: true,
+    admin: true,
+    schema: articleIdParamSchema,
+    successDescription: "Detail artikel beserta status dan penulis",
+  },
+
+  {
+    method: "post",
+    path: "/api/v1/articles/{id}/bookmark",
+    tag: "Bookmark",
+    summary:
+      "Tandai artikel. Idempotent: 201 saat baru ditandai, 200 kalau sudah ditandai sebelumnya",
+    auth: true,
+    schema: articleIdParamSchema,
+    successStatus: 201,
+    successDescription: "Artikel ditandai",
+  },
+  {
+    method: "delete",
+    path: "/api/v1/articles/{id}/bookmark",
+    tag: "Bookmark",
+    summary: "Hapus tanda. Idempotent: tetap 200 walau belum pernah ditandai",
+    auth: true,
+    schema: articleIdParamSchema,
+    successDescription: "Tanda dihapus; `removed` false kalau memang tidak ada",
+  },
+  {
+    method: "get",
+    path: "/api/v1/bookmarks",
+    tag: "Bookmark",
+    summary:
+      "Artikel yang ditandai, terbaru di atas. Artikel yang diturunkan ke draft disembunyikan",
+    auth: true,
+    schema: listBookmarkQuerySchema,
+    successDescription: "Daftar bookmark + meta pagination",
+  },
 ];
 
 export const buildOpenApiDocument = () => {
@@ -454,6 +572,8 @@ export const buildOpenApiDocument = () => {
         description: "Goal, analisis gap, dan saran income (F-04..F-06)",
       },
       { name: "Transaksi", description: "Catatan keuangan & laporan (F-07..F-09)" },
+      { name: "Artikel", description: "Artikel & berita keuangan (F-14..F-15)" },
+      { name: "Bookmark", description: "Artikel favorit (F-16)" },
     ],
     components: {
       securitySchemes: {
