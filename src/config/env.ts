@@ -34,6 +34,12 @@ const envSchema = z
               .filter(Boolean)
           : [],
       ),
+
+    // Batas rate limit per IP. Default = nilai production; naikkan hanya di
+    // environment non-publik (staging/QA) agar automation testing tidak tertahan.
+    RATE_LIMIT_GLOBAL_MAX: z.coerce.number().int().positive().default(100),
+    RATE_LIMIT_AUTH_MAX: z.coerce.number().int().positive().default(10),
+    RATE_LIMIT_REGISTER_MAX: z.coerce.number().int().positive().default(5),
   })
   .superRefine((value, ctx) => {
     if (value.NODE_ENV === "production" && value.CORS_ORIGIN.length === 0) {

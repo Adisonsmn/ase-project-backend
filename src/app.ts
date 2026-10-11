@@ -41,14 +41,17 @@ app.use(
   }),
 );
 
-// 3. Rate limiting global (limiter yang lebih ketat dipasang per route)
+// 3. Health check dipasang sebelum rate limiter: probe Azure Container Apps
+// memanggilnya rutin, dan respons 429 bisa membuat container di-restart.
+app.use("/health", healthRoutes);
+
+// 4. Rate limiting global (limiter yang lebih ketat dipasang per route)
 app.use(globalLimiter);
 
-// 4. Body parser
+// 5. Body parser
 app.use(express.json({ limit: "100kb" }));
 
-// 5. Routes
-app.use("/health", healthRoutes);
+// 6. Routes
 app.use("/api/v1/auth", authRoutes);
 app.use("/api/v1/users", userRoutes);
 app.use("/api/v1/categories", categoryRoutes);
@@ -62,7 +65,7 @@ app.use("/api/v1/bookmarks", bookmarkRoutes);
 app.use("/api/v1/admin", adminRoutes);
 app.use("/api/v1/docs", docsRoutes);
 
-// 6. Handler 404 & error global
+// 7. Handler 404 & error global
 app.use(notFoundMiddleware);
 app.use(errorMiddleware);
 
