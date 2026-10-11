@@ -65,13 +65,11 @@ const toPublicUser = (user: {
   id: string;
   email: string;
   username: string;
-  displayName: string | null;
   role: Role;
 }) => ({
   id: user.id,
   email: user.email,
   username: user.username,
-  displayName: user.displayName,
   role: user.role,
 });
 
@@ -94,7 +92,6 @@ export const register = async (input: RegisterInput) => {
       email: input.email,
       username: input.username,
       passwordHash,
-      displayName: input.displayName,
       dateOfBirth,
     },
   });

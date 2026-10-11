@@ -9,7 +9,6 @@ describe("registerSchema", () => {
     email: "rani@example.com",
     username: "rani_15",
     password: "rahasia123",
-    displayName: "Rani",
     dateOfBirth: "2011-05-04",
   };
 
@@ -49,7 +48,7 @@ describe("registerSchema", () => {
     expect(result.success).toBe(false);
   });
 
-  test("displayName dan dateOfBirth bersifat opsional", () => {
+  test("dateOfBirth bersifat opsional", () => {
     const result = registerSchema.safeParse(
       wrap({
         email: valid.email,
@@ -77,7 +76,7 @@ describe("updateMeSchema", () => {
   });
 
   test("menerima update satu field", () => {
-    const result = updateMeSchema.safeParse(wrap({ displayName: "Rani A" }));
+    const result = updateMeSchema.safeParse(wrap({ username: "rani_a" }));
     expect(result.success).toBe(true);
   });
 

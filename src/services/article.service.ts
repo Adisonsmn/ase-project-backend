@@ -36,7 +36,7 @@ const articleAdminSelect = {
   ...articleDetailSelect,
   status: true,
   createdAt: true,
-  author: { select: { id: true, username: true, displayName: true } },
+  author: { select: { id: true, username: true } },
 } as const;
 
 // Urutan sesuai PRD: terbaru di atas. createdAt dan id sebagai pemecah seri

@@ -25,11 +25,6 @@ export const registerSchema = z.object({
       .string()
       .min(8, "Password minimal 8 karakter")
       .max(128, "Password maksimal 128 karakter"),
-    displayName: z
-      .string()
-      .min(2, "Display name minimal 2 karakter")
-      .max(50, "Display name maksimal 50 karakter")
-      .optional(),
     dateOfBirth: dateOfBirth.optional(),
   }),
 });
