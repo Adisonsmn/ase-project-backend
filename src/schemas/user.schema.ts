@@ -3,11 +3,6 @@ import { z } from "zod";
 export const updateMeSchema = z.object({
   body: z
     .object({
-      displayName: z
-        .string()
-        .min(2, "Display name minimal 2 karakter")
-        .max(50, "Display name maksimal 50 karakter")
-        .optional(),
       username: z
         .string()
         .min(3, "Username minimal 3 karakter")

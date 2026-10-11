@@ -6,7 +6,6 @@ const userSelectFields = {
   id: true,
   email: true,
   username: true,
-  displayName: true,
   avatarUrl: true,
   dateOfBirth: true,
   role: true,
@@ -55,7 +54,6 @@ export const updateProfile = async (userId: string, input: UpdateMeInput) => {
   const updatedUser = await prisma.user.update({
     where: { id: userId },
     data: {
-      ...(input.displayName !== undefined && { displayName: input.displayName }),
       ...(input.username !== undefined && { username: input.username }),
       ...(input.avatarUrl !== undefined && { avatarUrl: input.avatarUrl }),
       ...(dateOfBirth !== undefined && { dateOfBirth }),
