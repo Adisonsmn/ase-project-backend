@@ -15,6 +15,7 @@
     "typecheck": "bunx tsc --noEmit",
     "db:deploy": "bunx prisma migrate deploy",
     "db:seed": "bun prisma/seed.ts",
+    "db:seed:demo": "bun prisma/seed-demo.ts",
     "db:set-role": "bun prisma/set-role.ts"
   },
   "devDependencies": {
