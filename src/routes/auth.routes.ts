@@ -2,7 +2,8 @@ import { Router } from "express";
 import * as authController from "../controllers/auth.controller";
 import { validateMiddleware } from "../middlewares/validate.middleware";
 import {
-  authLimiter,
+  loginLimiter,
+  refreshLimiter,
   registerLimiter,
 } from "../middlewares/rate-limit.middleware";
 import {
@@ -22,19 +23,19 @@ router.post(
 
 router.post(
   "/login",
-  authLimiter,
+  loginLimiter,
   validateMiddleware(loginSchema),
   authController.login,
 );
 
 router.post(
   "/refresh",
-  authLimiter,
+  refreshLimiter,
   validateMiddleware(refreshSchema),
   authController.refresh,
 );
 
-// Logout tidak dibatasi authLimiter: gagal logout tidak membocorkan kredensial,
+// Logout tidak dibatasi limiter auth: gagal logout tidak membocorkan kredensial,
 // dan pembatasan justru bisa menahan user keluar dari sesinya.
 router.post(
   "/logout",
