@@ -137,6 +137,7 @@ az containerapp update -n ase-backend -g ase-backend-rg --image asebackendacr01.
 | `bun run typecheck`   | Cek tipe TypeScript                   |
 | `bun run db:migrate`  | Buat & terapkan migrasi (development) |
 | `bun run db:seed`     | Isi kategori bawaan, ide income, & kategori artikel (idempotent) |
+| `bun run db:seed:demo` | Reset & isi data demo (akun `demo@example.com`, transaksi 3 bulan, target, rasio, bookmark). Jalankan setelah `db:seed`; tidak bisa dijalankan saat `NODE_ENV=production` |
 | `bun run db:set-role -- <email> <USER\|ADMIN>` | Ubah role user, misalnya menjadikan admin |
 | `bun run db:deploy`   | Terapkan migrasi (production)         |
 | `bun run db:generate` | Generate Prisma Client                |
