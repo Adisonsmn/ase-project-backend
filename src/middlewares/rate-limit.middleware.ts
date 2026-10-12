@@ -1,4 +1,5 @@
-import rateLimit from "express-rate-limit";
+import type { Request } from "express";
+import rateLimit, { ipKeyGenerator } from "express-rate-limit";
 import { env } from "../config/env";
 
 const message = (text: string) => ({ message: text });
@@ -19,10 +20,40 @@ export const globalLimiter = rateLimit({
 });
 
 /**
- * Batas ketat untuk endpoint yang memeriksa kredensial (login, refresh).
- * Menahan credential stuffing / brute force (NF-03).
+ * Kunci login = IP + email, agar satu akun yang salah password tidak ikut
+ * mengunci pengguna lain di jaringan yang sama (mis. Wi-Fi kampus / NAT).
+ * Percobaan ke banyak email dari satu IP tetap tertahan globalLimiter.
  */
-export const authLimiter = rateLimit({
+const loginKey = (req: Request) => {
+  const email =
+    typeof req.body?.email === "string"
+      ? req.body.email.trim().toLowerCase()
+      : "";
+  return `${ipKeyGenerator(req.ip ?? "")}:${email}`;
+};
+
+/**
+ * Batas ketat untuk login: hanya percobaan gagal yang dihitung.
+ * Menahan brute force password per akun (NF-03).
+ */
+export const loginLimiter = rateLimit({
+  windowMs: 15 * 60 * 1000,
+  limit: env.RATE_LIMIT_AUTH_MAX,
+  standardHeaders: true,
+  legacyHeaders: false,
+  skip,
+  skipSuccessfulRequests: true,
+  keyGenerator: loginKey,
+  message: message(
+    "Terlalu banyak percobaan gagal. Silakan coba lagi setelah 15 menit.",
+  ),
+});
+
+/**
+ * Batas refresh token, terpisah dari login: refresh gagal (token kedaluwarsa
+ * yang dikirim otomatis oleh frontend) tidak boleh menghabiskan jatah login.
+ */
+export const refreshLimiter = rateLimit({
   windowMs: 15 * 60 * 1000,
   limit: env.RATE_LIMIT_AUTH_MAX,
   standardHeaders: true,
@@ -30,7 +61,7 @@ export const authLimiter = rateLimit({
   skip,
   skipSuccessfulRequests: true,
   message: message(
-    "Terlalu banyak percobaan gagal. Silakan coba lagi setelah 15 menit.",
+    "Terlalu banyak refresh token gagal. Silakan login ulang atau coba lagi setelah 15 menit.",
   ),
 });
 

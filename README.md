@@ -34,7 +34,7 @@ Backend API untuk aplikasi edukasi literasi keuangan.
    Catatan penting:
    - `JWT_ACCESS_SECRET` dan `JWT_REFRESH_SECRET` minimal 32 karakter dan **harus berbeda**.
    - `CORS_ORIGIN` wajib diisi saat `NODE_ENV=production`; server menolak start jika kosong.
-   - `RATE_LIMIT_GLOBAL_MAX`, `RATE_LIMIT_AUTH_MAX`, `RATE_LIMIT_REGISTER_MAX` opsional; default-nya nilai production. Naikkan hanya di staging/QA untuk automation testing. Saat `NODE_ENV=test` rate limit dimatikan, dan `/health` tidak pernah dibatasi.
+   - `RATE_LIMIT_GLOBAL_MAX`, `RATE_LIMIT_AUTH_MAX`, `RATE_LIMIT_REGISTER_MAX` opsional; default-nya nilai production. `RATE_LIMIT_AUTH_MAX` dipakai login (dihitung per IP + email) dan refresh (per IP), masing-masing dengan counter sendiri. Naikkan hanya di staging/QA untuk automation testing. Saat `NODE_ENV=test` rate limit dimatikan, dan `/health` tidak pernah dibatasi.
    - **Supabase:** gunakan connection string **Session Pooler**, bukan Direct connection (lihat Troubleshooting).
 
 3. **Migrasi database & isi kategori bawaan**
