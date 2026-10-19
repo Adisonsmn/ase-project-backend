@@ -74,6 +74,7 @@ model User {
   accounts     Account[]
   categories   Category[]
   transactions Transaction[]
+  transfers    Transfer[]
   savingRatio  SavingRatio?
   goals        SavingGoal[]
   articles     Article[]
@@ -120,8 +121,8 @@ model Category {
 }
 
 /// Tempat uang disimpan: dompet, rekening, celengan. Saldo sengaja tidak
-/// disimpan sebagai kolom, tetapi dihitung dari saldo awal dan transaksi,
-/// supaya tidak pernah melenceng dari catatan.
+/// disimpan sebagai kolom, tetapi dihitung dari saldo awal, transaksi, dan
+/// transfer, supaya tidak pernah melenceng dari catatan.
 model Account {
   id             String      @id @default(uuid())
   userId         String
@@ -139,9 +140,38 @@ model Account {
 
   user         User          @relation(fields: [userId], references: [id], onDelete: Cascade)
   transactions Transaction[]
+  transfersOut Transfer[]    @relation("TransferFrom")
+  transfersIn  Transfer[]    @relation("TransferTo")
 
   @@unique([userId, name])
   @@index([userId, isArchived])
+}
+
+/// Perpindahan uang antar akun milik user yang sama, mis. tarik tunai.
+/// Bukan pemasukan atau pengeluaran, jadi tidak dicatat sebagai Transaction
+/// dan tidak memengaruhi laporan. Biaya admin dicatat sebagai Transaction
+/// EXPENSE bertaut (feeTransaction), jadi ikut laporan pengeluaran tanpa
+/// disimpan dua kali.
+model Transfer {
+  id            String   @id @default(uuid())
+  userId        String
+  fromAccountId String
+  toAccountId   String
+  amount        Decimal  @db.Decimal(14, 2)
+  note          String?
+  occurredAt    DateTime
+  createdAt     DateTime @default(now())
+  updatedAt     DateTime @updatedAt
+
+  user           User         @relation(fields: [userId], references: [id], onDelete: Cascade)
+  // NoAction dengan alasan yang sama seperti Transaction.account.
+  fromAccount    Account      @relation("TransferFrom", fields: [fromAccountId], references: [id], onDelete: NoAction)
+  toAccount      Account      @relation("TransferTo", fields: [toAccountId], references: [id], onDelete: NoAction)
+  feeTransaction Transaction?
+
+  @@index([userId, occurredAt])
+  @@index([fromAccountId])
+  @@index([toAccountId])
 }
 
 model Transaction {
@@ -151,6 +181,9 @@ model Transaction {
   categoryId String?
   /// Transaksi tabungan yang ditautkan ke sebuah target.
   goalId     String?
+  /// Terisi kalau transaksi ini biaya admin sebuah transfer. Diubah dan
+  /// dihapus lewat transfernya, bukan langsung.
+  transferId String?         @unique
   type       TransactionType
   amount     Decimal         @db.Decimal(14, 2)
   note       String?
@@ -170,6 +203,8 @@ model Transaction {
   category Category?   @relation(fields: [categoryId], references: [id], onDelete: SetNull)
   // Menghapus goal tidak menghapus transaksinya; tautannya saja yang dilepas.
   goal     SavingGoal? @relation(fields: [goalId], references: [id], onDelete: SetNull)
+  // Biaya admin ikut terhapus bersama transfernya.
+  transfer Transfer?   @relation(fields: [transferId], references: [id], onDelete: Cascade)
 
   @@index([userId, occurredAt])
   @@index([userId, categoryId])

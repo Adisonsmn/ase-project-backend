@@ -1,4 +1,5 @@
 import { prisma } from "../src/config/database";
+import { TRANSFER_FEE_CATEGORY_ID } from "../src/utils/account";
 import type { TransactionType } from "../generated/prisma/enums";
 import { incomeIdeas } from "./seeds/income-ideas";
 import { articleCategories } from "./seeds/article-categories";
@@ -28,6 +29,8 @@ const systemCategories: SeedCategory[] = [
   { id: "00000000-0000-4000-8000-000000000005", name: "Tabungan", icon: "piggy-bank", type: "EXPENSE" },
   { id: "00000000-0000-4000-8000-000000000006", name: "Kesehatan", icon: "heart-pulse", type: "EXPENSE" },
   { id: "00000000-0000-4000-8000-000000000007", name: "Belanja", icon: "shopping-bag", type: "EXPENSE" },
+  // Dipakai otomatis untuk biaya admin transfer antar akun.
+  { id: TRANSFER_FEE_CATEGORY_ID, name: "Biaya Admin", icon: "swap", type: "EXPENSE" },
   { id: "00000000-0000-4000-8000-00000000000f", name: "Lain-lain", icon: "ellipsis", type: "EXPENSE", isFallback: true },
 
   // Pemasukan

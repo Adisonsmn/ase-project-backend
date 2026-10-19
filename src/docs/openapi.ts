@@ -34,6 +34,11 @@ import {
   summaryQuerySchema,
 } from "../schemas/transaction.schema";
 import {
+  createTransferSchema,
+  updateTransferSchema,
+} from "../schemas/transfer.schema";
+import { listActivityQuerySchema } from "../schemas/activity.schema";
+import {
   adminListArticleQuerySchema,
   articleIdParamSchema,
   articleSlugParamSchema,
@@ -455,6 +460,46 @@ const routes: RouteSpec[] = [
   },
 
   {
+    method: "post",
+    path: "/api/v1/transfers",
+    tag: "Transfer",
+    summary:
+      "Pindahkan uang antar akun sendiri. Biaya admin (fee) dicatat sebagai pengeluaran kategori Biaya Admin dari akun asal",
+    auth: true,
+    schema: createTransferSchema,
+    successStatus: 201,
+    successDescription: "Transfer beserta saldo terbaru akun asal dan tujuan",
+  },
+  {
+    method: "patch",
+    path: "/api/v1/transfers/{id}",
+    tag: "Transfer",
+    summary: "Ubah transfer. fee: 0 menghapus biaya admin",
+    auth: true,
+    schema: updateTransferSchema,
+    successDescription: "Transfer beserta saldo terbaru akun asal dan tujuan",
+  },
+  {
+    method: "delete",
+    path: "/api/v1/transfers/{id}",
+    tag: "Transfer",
+    summary: "Hapus transfer beserta biaya adminnya",
+    auth: true,
+    schema: updateTransferSchema,
+    successDescription: "Transfer dihapus",
+  },
+  {
+    method: "get",
+    path: "/api/v1/activities",
+    tag: "Aktivitas",
+    summary:
+      "Timeline gabungan transaksi dan transfer, terbaru dulu. Setiap item punya kind: TRANSACTION atau TRANSFER",
+    auth: true,
+    schema: listActivityQuerySchema,
+    successDescription: "Daftar aktivitas + meta pagination",
+  },
+
+  {
     method: "get",
     path: "/api/v1/articles",
     tag: "Artikel",
@@ -630,6 +675,8 @@ export const buildOpenApiDocument = () => {
         description: "Goal, analisis gap, dan saran income (F-04..F-06)",
       },
       { name: "Transaksi", description: "Catatan keuangan & laporan (F-07..F-09)" },
+      { name: "Transfer", description: "Perpindahan uang antar akun sendiri" },
+      { name: "Aktivitas", description: "Timeline transaksi dan transfer" },
       { name: "Artikel", description: "Artikel & berita keuangan (F-14..F-15)" },
       { name: "Bookmark", description: "Artikel favorit (F-16)" },
     ],
