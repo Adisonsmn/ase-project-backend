@@ -2,18 +2,21 @@ import { Prisma } from "../../generated/prisma/client";
 import type { AgeGroup, GoalStatus } from "../../generated/prisma/enums";
 import { prisma } from "../config/database";
 import type {
+  CalculateGapInput,
   CreateGoalInput,
   UpdateGoalInput,
   ListIncomeIdeaQuery,
 } from "../schemas/goal.schema";
 import { AppError } from "../utils/app.error";
 import { formatMoney } from "../utils/money";
-import { startOfLocalMonth } from "../utils/datetime";
+import { startOfLocalMonth, toLocalDateString } from "../utils/datetime";
 import {
+  addDuration,
   analyzeGap,
   buildGapAdvice,
+  perIncomeBreakdown,
   resolveAgeGroup,
-  type GapResult,
+  type GapInput,
 } from "../utils/goal";
 import { DEFAULT_RATIO, toMonthlyAmount } from "../utils/ratio";
 
@@ -212,17 +215,31 @@ export const deleteGoal = async (userId: string, goalId: string) => {
   };
 };
 
+const findSavedRatio = (userId: string) =>
+  prisma.savingRatio.findUnique({
+    where: { userId },
+    select: { savingsPct: true, incomeAmount: true, period: true },
+  });
+
+type SavedRatio = Awaited<ReturnType<typeof findSavedRatio>>;
+
+/** Persentase tabungan dari rasio tersimpan, atau rasio default. */
+const resolveSavingsPct = (ratio: SavedRatio) =>
+  ratio
+    ? { savingsPct: ratio.savingsPct, savingsPctSource: "saved_ratio" as const }
+    : {
+        savingsPct: DEFAULT_RATIO.savingsPct,
+        savingsPctSource: "default" as const,
+      };
+
 /**
  * Pemasukan bulanan user: dari rasio tersimpan kalau ada, kalau tidak
  * dihitung dari rata-rata pemasukan tercatat 3 bulan terakhir.
  */
-const resolveMonthlyIncome = async (userId: string) => {
-  const ratio = await prisma.savingRatio.findUnique({ where: { userId } });
-
+const resolveMonthlyIncome = async (userId: string, ratio: SavedRatio) => {
   if (ratio?.incomeAmount && ratio.period) {
     return {
       monthlyIncome: toMonthlyAmount(ratio.incomeAmount, ratio.period),
-      savingsPct: ratio.savingsPct,
       source: "saved_ratio" as const,
     };
   }
@@ -240,7 +257,6 @@ const resolveMonthlyIncome = async (userId: string) => {
 
   return {
     monthlyIncome: total.dividedBy(3).toDecimalPlaces(2).toFixed(2),
-    savingsPct: ratio?.savingsPct ?? DEFAULT_RATIO.savingsPct,
     source: total.isZero()
       ? ("unknown" as const)
       : ("transactions" as const),
@@ -318,32 +334,112 @@ export const listIncomeIdeas = async (
   };
 };
 
+/**
+ * Analisis gap, saran, dan ide income. Dipakai bersama oleh target tersimpan
+ * dan kalkulator, supaya keduanya tidak pernah memberi angka yang berbeda.
+ */
+const buildGapReport = async (
+  userId: string,
+  input: GapInput & { title?: string },
+) => {
+  const analysis = analyzeGap(input);
+
+  const ideas = analysis.isAchieved
+    ? { ageGroup: "GENERAL" as AgeGroup, data: [] }
+    : await listIncomeIdeas(userId, { gap: analysis.gapPerMonth });
+
+  return {
+    analysis,
+    advice: buildGapAdvice(analysis, input.title),
+    incomeIdeas: ideas.data,
+    ageGroup: ideas.ageGroup,
+  };
+};
+
 export const analyzeGoalGap = async (userId: string, goalId: string) => {
   const goal = await refreshProgress(userId, goalId);
-  const income = await resolveMonthlyIncome(userId);
+  const ratio = await findSavedRatio(userId);
+  const income = await resolveMonthlyIncome(userId, ratio);
+  const { savingsPct } = resolveSavingsPct(ratio);
 
-  const result: GapResult = analyzeGap({
+  const report = await buildGapReport(userId, {
+    title: goal.title,
     targetAmount: goal.targetAmount,
     currentAmount: goal.currentAmount,
     targetDate: goal.targetDate,
     monthlyIncome: income.monthlyIncome,
-    savingsPct: income.savingsPct,
+    savingsPct,
   });
-
-  const ideas = result.isAchieved
-    ? { ageGroup: "GENERAL" as AgeGroup, data: [] }
-    : await listIncomeIdeas(userId, { gap: result.gapPerMonth });
 
   return {
     goal,
     income: {
       monthlyIncome: income.monthlyIncome,
-      savingsPct: income.savingsPct,
+      savingsPct,
       source: income.source,
     },
-    analysis: result,
-    advice: buildGapAdvice(result, goal.title),
-    incomeIdeas: ideas.data,
-    ageGroup: ideas.ageGroup,
+    ...report,
+  };
+};
+
+/**
+ * Kalkulator gap tanpa menyimpan target. Isian yang kosong diisi dari data
+ * user: pemasukan dari rasio tersimpan atau transaksi, persentase tabungan
+ * dari rasio tersimpan atau default.
+ */
+export const calculateGap = async (
+  userId: string,
+  input: CalculateGapInput,
+) => {
+  // Schema menjamin tepat satu dari targetDate dan duration terisi.
+  const targetDate = input.targetDate ?? addDuration(new Date(), input.duration!);
+  const currentAmount = input.currentAmount ?? "0";
+
+  const ratio = await findSavedRatio(userId);
+
+  const income = input.income
+    ? {
+        monthlyIncome: toMonthlyAmount(
+          input.income.amount,
+          input.income.period,
+          input.income.every,
+        ),
+        source: "input" as const,
+      }
+    : await resolveMonthlyIncome(userId, ratio);
+
+  const savings =
+    input.savingsPct !== undefined
+      ? { savingsPct: input.savingsPct, savingsPctSource: "input" as const }
+      : resolveSavingsPct(ratio);
+
+  const report = await buildGapReport(userId, {
+    title: input.title,
+    targetAmount: input.targetAmount,
+    currentAmount,
+    targetDate,
+    monthlyIncome: income.monthlyIncome,
+    savingsPct: savings.savingsPct,
+  });
+
+  return {
+    input: {
+      title: input.title ?? null,
+      targetAmount: formatMoney(input.targetAmount),
+      currentAmount: formatMoney(currentAmount),
+      targetDate: toLocalDateString(targetDate),
+      duration: input.duration ?? null,
+      income: input.income
+        ? { ...input.income, amount: formatMoney(input.income.amount) }
+        : null,
+    },
+    income: { ...income, ...savings },
+    analysis: report.analysis,
+    perIncome: input.income
+      ? perIncomeBreakdown(report.analysis.requiredPerMonth, input.income)
+      : null,
+    advice: report.advice,
+    incomeIdeas: report.incomeIdeas,
+    ageGroup: report.ageGroup,
   };
 };

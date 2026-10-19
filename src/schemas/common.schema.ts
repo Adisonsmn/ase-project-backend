@@ -24,15 +24,29 @@ export const MAX_AMOUNT = 999_999_999_999.99;
  * Nominal diterima sebagai string maupun number, lalu dinormalkan ke string
  * agar presisi tidak hilang sebelum masuk ke Decimal.
  */
-export const moneySchema = z
+const moneyFormat = z
   .union([z.string(), z.number()])
   .transform((value) => String(value).trim())
   .refine(
     (value) => /^\d+(\.\d{1,2})?$/.test(value),
     "Nominal harus angka positif dengan maksimal 2 angka desimal",
-  )
+  );
+
+export const moneySchema = moneyFormat
   .refine((value) => Number(value) > 0, "Nominal harus lebih dari 0")
   .refine((value) => Number(value) <= MAX_AMOUNT, "Nominal terlalu besar");
+
+/** Seperti moneySchema tetapi boleh 0, untuk saldo awal dan biaya opsional. */
+export const nonNegativeMoneySchema = moneyFormat.refine(
+  (value) => Number(value) <= MAX_AMOUNT,
+  "Nominal terlalu besar",
+);
+
+export const percentageSchema = z
+  .number()
+  .int("Persentase harus bilangan bulat")
+  .min(0, "Persentase minimal 0")
+  .max(100, "Persentase maksimal 100");
 
 /**
  * URL http(s) ke domain publik. `z.url()` polos menerima skema apa pun,

@@ -4,6 +4,7 @@ import { authMiddleware } from "../middlewares/auth.middleware";
 import { validateMiddleware } from "../middlewares/validate.middleware";
 import { idParamSchema } from "../schemas/common.schema";
 import {
+  calculateGapSchema,
   createGoalSchema,
   updateGoalSchema,
   listGoalQuerySchema,
@@ -14,6 +15,13 @@ const router = Router();
 router.use(authMiddleware);
 
 router.post("/", validateMiddleware(createGoalSchema), goalController.create);
+
+// Kalkulator gap tanpa menyimpan target; datanya dari isian form, bukan goal.
+router.post(
+  "/gap/calculate",
+  validateMiddleware(calculateGapSchema),
+  goalController.calculateGap,
+);
 
 router.get("/", validateMiddleware(listGoalQuerySchema), goalController.list);
 

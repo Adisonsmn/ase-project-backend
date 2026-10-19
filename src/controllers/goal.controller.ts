@@ -83,6 +83,16 @@ export const gap: RequestHandler = async (req, res, next) => {
   }
 };
 
+export const calculateGap: RequestHandler = async (req, res, next) => {
+  try {
+    const userId = requireUserId(req);
+    const result = await goalService.calculateGap(userId, req.body);
+    res.status(200).json(result);
+  } catch (error) {
+    next(error);
+  }
+};
+
 export const incomeIdeas: RequestHandler = async (req, res, next) => {
   try {
     const userId = requireUserId(req);
