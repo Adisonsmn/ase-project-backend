@@ -1,12 +1,10 @@
 import { z } from "zod";
-import { incomePeriodSchema, moneySchema } from "./common.schema";
+import {
+  incomePeriodSchema,
+  moneySchema,
+  percentageSchema as percentage,
+} from "./common.schema";
 import { RATIO_PRESETS } from "../utils/ratio";
-
-const percentage = z
-  .number()
-  .int("Persentase harus bilangan bulat")
-  .min(0, "Persentase minimal 0")
-  .max(100, "Persentase maksimal 100");
 
 /**
  * Tiga kategori tetap: kebutuhan, tabungan, hiburan.

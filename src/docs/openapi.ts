@@ -12,6 +12,7 @@ import {
   updateCategorySchema,
 } from "../schemas/category.schema";
 import {
+  calculateGapSchema,
   createGoalSchema,
   updateGoalSchema,
   listGoalQuerySchema,
@@ -309,6 +310,17 @@ const routes: RouteSpec[] = [
     schema: updateGoalSchema,
     successDescription:
       "Kebutuhan per bulan, kemampuan, gap, saran, dan daftar ide income",
+  },
+  {
+    method: "post",
+    path: "/api/v1/goals/gap/calculate",
+    tag: "Target Tabungan",
+    summary:
+      "Hitung analisis gap tanpa menyimpan target. Isi salah satu: targetDate atau duration. Pemasukan dan savingsPct yang kosong diambil dari rasio tersimpan",
+    auth: true,
+    schema: calculateGapSchema,
+    successDescription:
+      "Kebutuhan per bulan, kemampuan, gap, porsi per penerimaan uang, saran, dan daftar ide income",
   },
   {
     method: "patch",

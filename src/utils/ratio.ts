@@ -115,13 +115,18 @@ export const allocate = (
   };
 };
 
-/** Nominal per periode diubah ke setara bulanan. */
+/**
+ * Nominal per periode diubah ke setara bulanan. `every` untuk pemasukan yang
+ * datang tiap beberapa periode, mis. setiap 2 minggu.
+ */
 export const toMonthlyAmount = (
   amount: string | number | Prisma.Decimal,
   period: IncomePeriod,
+  every = 1,
 ): string =>
   new Prisma.Decimal(amount)
     .times(MONTHLY_FACTOR[period])
+    .dividedBy(every)
     .toDecimalPlaces(2)
     .toFixed(2);
 

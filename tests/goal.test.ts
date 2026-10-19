@@ -1,11 +1,15 @@
 import { describe, expect, test } from "bun:test";
 import {
+  addDuration,
   analyzeGap,
   buildGapAdvice,
   calculateAge,
   monthsUntil,
+  perIncomeBreakdown,
   resolveAgeGroup,
 } from "../src/utils/goal";
+import { startOfLocalDay, toLocalDateString } from "../src/utils/datetime";
+import { toMonthlyAmount } from "../src/utils/ratio";
 
 const NOW = new Date("2026-09-20T05:00:00Z"); // 12:00 WIB
 const inDays = (days: number) =>
@@ -288,5 +292,146 @@ describe("buildGapAdvice", () => {
   test("selalu mengembalikan minimal satu saran", () => {
     const result = analyzeGap({ ...base, monthlyIncome: "10000000" });
     expect(buildGapAdvice(result, "Sepeda").length).toBeGreaterThan(0);
+  });
+
+  test("tanpa judul (kalkulator) tetap memberi pesan yang wajar", () => {
+    const result = analyzeGap({
+      ...base,
+      currentAmount: "5000000",
+      monthlyIncome: "2000000",
+    });
+    const advice = buildGapAdvice(result);
+
+    expect(advice[0]?.message).toStartWith("Target ini sudah tercapai");
+  });
+});
+
+describe("addDuration", () => {
+  const local = (date: Date) => toLocalDateString(date);
+
+  test.each([
+    [{ value: 10, unit: "DAY" }, "2026-09-30"],
+    [{ value: 10, unit: "WEEK" }, "2026-11-29"],
+    [{ value: 3, unit: "MONTH" }, "2026-12-20"],
+    [{ value: 1, unit: "YEAR" }, "2027-09-20"],
+  ] as const)("%o dari 20 Sep 2026 -> %s", (duration, expected) => {
+    expect(local(addDuration(NOW, duration))).toBe(expected);
+  });
+
+  test("bulan memakai kalender dan dijepit ke akhir bulan", () => {
+    const jan31 = new Date("2026-01-31T05:00:00Z");
+    expect(local(addDuration(jan31, { value: 1, unit: "MONTH" }))).toBe(
+      "2026-02-28",
+    );
+  });
+
+  test("tahun kabisat: 31 Jan 2028 + 1 bulan = 29 Feb", () => {
+    const jan31 = new Date("2028-01-31T05:00:00Z");
+    expect(local(addDuration(jan31, { value: 1, unit: "MONTH" }))).toBe(
+      "2028-02-29",
+    );
+  });
+
+  test("29 Feb + 1 tahun jatuh ke 28 Feb, bukan 1 Maret", () => {
+    const feb29 = new Date("2028-02-29T05:00:00Z");
+    expect(local(addDuration(feb29, { value: 1, unit: "YEAR" }))).toBe(
+      "2029-02-28",
+    );
+  });
+
+  test("melewati pergantian tahun", () => {
+    const nov15 = new Date("2026-11-15T05:00:00Z");
+    expect(local(addDuration(nov15, { value: 3, unit: "MONTH" }))).toBe(
+      "2027-02-15",
+    );
+  });
+
+  test("dihitung dari tanggal WIB, bukan UTC", () => {
+    // 01:00 WIB 1 Oktober masih 30 September menurut UTC.
+    const earlyOct1 = new Date("2026-09-30T18:00:00Z");
+    expect(local(addDuration(earlyOct1, { value: 1, unit: "MONTH" }))).toBe(
+      "2026-11-01",
+    );
+    expect(local(addDuration(earlyOct1, { value: 1, unit: "DAY" }))).toBe(
+      "2026-10-02",
+    );
+  });
+
+  test("hasilnya selalu awal hari lokal", () => {
+    const result = addDuration(NOW, { value: 2, unit: "MONTH" });
+    expect(result.getTime()).toBe(startOfLocalDay(result).getTime());
+  });
+});
+
+describe("perIncomeBreakdown", () => {
+  test("mingguan: kebutuhan bulanan dibagi ~4,345 penerimaan", () => {
+    const result = perIncomeBreakdown("434523.81", {
+      amount: "100000",
+      period: "WEEKLY",
+      every: 1,
+    });
+
+    expect(result.receiptsPerMonth).toBe(4.35);
+    expect(result.requiredPerReceipt).toBe("100000.00");
+    expect(result.requiredPctOfIncome).toBe(100);
+  });
+
+  test("setiap 2 minggu: penerimaannya setengah lebih jarang", () => {
+    const result = perIncomeBreakdown("434523.81", {
+      amount: "200000",
+      period: "WEEKLY",
+      every: 2,
+    });
+
+    expect(result.receiptsPerMonth).toBe(2.17);
+    expect(result.requiredPerReceipt).toBe("200000.00");
+    expect(result.requiredPctOfIncome).toBe(100);
+  });
+
+  test("bulanan", () => {
+    const result = perIncomeBreakdown("150000", {
+      amount: "1000000",
+      period: "MONTHLY",
+      every: 1,
+    });
+
+    expect(result.requiredPerReceipt).toBe("150000.00");
+    expect(result.requiredPctOfIncome).toBe(15);
+  });
+
+  test("porsi boleh melebihi 100% kalau targetnya terlalu berat", () => {
+    const result = perIncomeBreakdown("600000", {
+      amount: "10000",
+      period: "DAILY",
+      every: 1,
+    });
+
+    expect(result.requiredPerReceipt).toBe("20000.00");
+    expect(result.requiredPctOfIncome).toBe(200);
+  });
+});
+
+describe("kalkulator gap — contoh form Ide di frontend", () => {
+  // Target 1 juta dalam 10 minggu, uang jajan 100rb/minggu, tabungan 30%.
+  // Frontend lama menyebut ini "cukup" karena menganggap seluruh uang jajan
+  // ditabung; menurut PRD, kemampuan menabung hanya 30% dari pemasukan.
+  const income = { amount: "100000", period: "WEEKLY", every: 1 } as const;
+  const analysis = analyzeGap({
+    targetAmount: "1000000",
+    currentAmount: "0",
+    targetDate: addDuration(NOW, { value: 10, unit: "WEEK" }),
+    monthlyIncome: toMonthlyAmount(income.amount, income.period, income.every),
+    savingsPct: 30,
+    now: NOW,
+  });
+
+  test("masih ada kekurangan", () => {
+    expect(Number(analysis.gapPerMonth)).toBeGreaterThan(0);
+    expect(analysis.isOnTrack).toBe(false);
+  });
+
+  test("harus menyisihkan seluruh uang jajan setiap minggu", () => {
+    const breakdown = perIncomeBreakdown(analysis.requiredPerMonth, income);
+    expect(breakdown.requiredPctOfIncome).toBeCloseTo(100, 0);
   });
 });

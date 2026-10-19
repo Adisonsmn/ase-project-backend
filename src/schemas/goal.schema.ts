@@ -1,5 +1,10 @@
 import { z } from "zod";
-import { moneySchema } from "./common.schema";
+import {
+  incomePeriodSchema,
+  moneySchema,
+  nonNegativeMoneySchema,
+  percentageSchema,
+} from "./common.schema";
 
 const title = z
   .string()
@@ -62,9 +67,64 @@ export const listIncomeIdeaQuerySchema = z.object({
   }),
 });
 
+/** Batas jangka waktu per satuan, semuanya setara 30 tahun. */
+const MAX_DURATION = { DAY: 10_950, WEEK: 1_560, MONTH: 360, YEAR: 30 };
+
+const durationSchema = z
+  .object({
+    value: z
+      .number()
+      .int("Jangka waktu harus bilangan bulat")
+      .min(1, "Jangka waktu minimal 1"),
+    unit: z.enum(["DAY", "WEEK", "MONTH", "YEAR"], {
+      message: "Satuan harus DAY, WEEK, MONTH, atau YEAR",
+    }),
+  })
+  .refine(
+    (duration) => duration.value <= MAX_DURATION[duration.unit],
+    "Jangka waktu maksimal 30 tahun",
+  );
+
+/** Pemasukan rutin, mis. "100.000 setiap 2 minggu" = WEEKLY dengan every 2. */
+const incomeScheduleSchema = z.object({
+  amount: moneySchema,
+  period: incomePeriodSchema,
+  every: z
+    .number()
+    .int("Interval harus bilangan bulat")
+    .min(1, "Interval minimal 1")
+    .max(365, "Interval maksimal 365")
+    .default(1),
+});
+
+/**
+ * Kalkulator gap tanpa menyimpan target (form "Ide" di frontend). Pemasukan
+ * dan persentase tabungan boleh kosong; service lalu memakai rasio tersimpan
+ * user, sama seperti analisis gap untuk target tersimpan.
+ */
+export const calculateGapSchema = z.object({
+  body: z
+    .object({
+      title: title.optional(),
+      targetAmount: moneySchema,
+      /** Tabungan yang sudah terkumpul. */
+      currentAmount: nonNegativeMoneySchema.optional(),
+      // Tenggat bisa berupa tanggal atau jangka waktu, tidak keduanya.
+      targetDate: futureDate.optional(),
+      duration: durationSchema.optional(),
+      income: incomeScheduleSchema.optional(),
+      savingsPct: percentageSchema.optional(),
+    })
+    .refine(
+      (data) => (data.targetDate === undefined) !== (data.duration === undefined),
+      "Isi salah satu: targetDate atau duration, tidak keduanya",
+    ),
+});
+
 export type CreateGoalInput = z.infer<typeof createGoalSchema>["body"];
 export type UpdateGoalInput = z.infer<typeof updateGoalSchema>["body"];
 export type ListGoalQuery = z.infer<typeof listGoalQuerySchema>["query"];
 export type ListIncomeIdeaQuery = z.infer<
   typeof listIncomeIdeaQuerySchema
 >["query"];
+export type CalculateGapInput = z.infer<typeof calculateGapSchema>["body"];
