@@ -1,12 +1,15 @@
 import { prisma } from "../src/config/database";
 import { env } from "../src/config/env";
 import { hashPassword } from "../src/utils/password";
+import { DEFAULT_ACCOUNTS } from "../src/utils/account";
+import { listAccounts } from "../src/services/account.service";
 import { refreshProgress } from "../src/services/goal.service";
 import type { TransactionType } from "../generated/prisma/enums";
 
 /**
- * Data demo untuk mengisi tampilan frontend: satu akun USER beserta transaksi
- * tiga bulan terakhir, target tabungan, rasio tabungan, dan bookmark.
+ * Data demo untuk mengisi tampilan frontend: satu akun USER beserta dompetnya
+ * (Tunai, Kartu Bank, Tabungan), transaksi tiga bulan terakhir, target
+ * tabungan, rasio tabungan, dan bookmark.
  *
  * Idempotent dengan cara reset: setiap kali dijalankan, seluruh data milik
  * akun demo dihapus lalu dibuat ulang dengan tanggal relatif terhadap hari
@@ -39,9 +42,32 @@ const goal = {
   sepatu: "00000000-0000-4000-8000-0000000d0003",
 };
 
+// Akun bawaan yang sama seperti saat register, dengan id tetap dan saldo awal.
+const account = {
+  tunai: "00000000-0000-4000-8000-0000000a0001",
+  bank: "00000000-0000-4000-8000-0000000a0002",
+  tabungan: "00000000-0000-4000-8000-0000000a0003",
+};
+
+const accountSeed: Record<string, { id: string; openingBalance: string }> = {
+  Tunai: { id: account.tunai, openingBalance: "600000" },
+  "Kartu Bank": { id: account.bank, openingBalance: "1000000" },
+  Tabungan: { id: account.tabungan, openingBalance: "750000" },
+};
+
+// Uang saku masuk ke rekening, dan menabung serta kebutuhan bulanan dibayar
+// dari rekening. Sisanya dibayar tunai.
+const bankCategories = new Set([
+  category.uangSaku,
+  category.tabungan,
+  category.belanja,
+  category.pendidikan,
+]);
+
 type DemoTransaction = {
   type: TransactionType;
   amount: string;
+  accountId: string;
   categoryId: string;
   goalId?: string;
   note: string;
@@ -80,6 +106,7 @@ const monthTransactions = (offset: number): DemoTransaction[] => {
   ): DemoTransaction => ({
     type,
     amount,
+    accountId: bankCategories.has(categoryId) ? account.bank : account.tunai,
     categoryId,
     goalId,
     note,
@@ -162,11 +189,20 @@ const seedDemo = async () => {
       update: { passwordHash, isActive: true },
     });
 
-    // Reset data milik akun demo saja.
+    // Reset data milik akun demo saja. Transaksi dihapus sebelum akunnya.
     await tx.transaction.deleteMany({ where: { userId: user.id } });
+    await tx.account.deleteMany({ where: { userId: user.id } });
     await tx.savingGoal.deleteMany({ where: { userId: user.id } });
     await tx.savingRatio.deleteMany({ where: { userId: user.id } });
     await tx.bookmark.deleteMany({ where: { userId: user.id } });
+
+    await tx.account.createMany({
+      data: DEFAULT_ACCOUNTS.map((a) => ({
+        ...a,
+        ...accountSeed[a.name]!,
+        userId: user.id,
+      })),
+    });
 
     await tx.savingGoal.createMany({
       data: [
@@ -223,6 +259,10 @@ const seedDemo = async () => {
     console.log(
       `Target "${progress.title}": ${progress.currentAmount} / ${progress.targetAmount} (${progress.status})`,
     );
+  }
+
+  for (const item of await listAccounts(user.id, false)) {
+    console.log(`Akun "${item.name}": saldo ${item.balance}`);
   }
 
   console.log(`Transaksi: ${transactions.length}`);
