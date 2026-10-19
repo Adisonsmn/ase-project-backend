@@ -48,6 +48,16 @@ enum ArticleStatus {
   PUBLISHED
 }
 
+/// Jenis akun hanya untuk label dan ikon. Aplikasi tidak terhubung ke bank
+/// atau e-wallet sungguhan (PRD 1.3).
+enum AccountType {
+  CASH
+  BANK
+  EWALLET
+  SAVINGS
+  OTHER
+}
+
 model User {
   id           String    @id @default(uuid())
   email        String    @unique
@@ -61,6 +71,7 @@ model User {
   updatedAt    DateTime  @updatedAt
 
   sessions     Session[]
+  accounts     Account[]
   categories   Category[]
   transactions Transaction[]
   savingRatio  SavingRatio?
@@ -108,9 +119,35 @@ model Category {
   @@index([userId])
 }
 
+/// Tempat uang disimpan: dompet, rekening, celengan. Saldo sengaja tidak
+/// disimpan sebagai kolom, tetapi dihitung dari saldo awal dan transaksi,
+/// supaya tidak pernah melenceng dari catatan.
+model Account {
+  id             String      @id @default(uuid())
+  userId         String
+  name           String
+  type           AccountType
+  icon           String?
+  openingBalance Decimal     @default(0) @db.Decimal(14, 2)
+  /// Dipakai kalau transaksi dicatat tanpa accountId. Tepat satu per user,
+  /// dijaga service.
+  isDefault      Boolean     @default(false)
+  /// Akun lama diarsipkan, bukan dihapus, supaya riwayatnya tetap utuh.
+  isArchived     Boolean     @default(false)
+  createdAt      DateTime    @default(now())
+  updatedAt      DateTime    @updatedAt
+
+  user         User          @relation(fields: [userId], references: [id], onDelete: Cascade)
+  transactions Transaction[]
+
+  @@unique([userId, name])
+  @@index([userId, isArchived])
+}
+
 model Transaction {
   id         String          @id @default(uuid())
   userId     String
+  accountId  String
   categoryId String?
   /// Transaksi tabungan yang ditautkan ke sebuah target.
   goalId     String?
@@ -123,6 +160,11 @@ model Transaction {
   updatedAt  DateTime        @updatedAt
 
   user     User        @relation(fields: [userId], references: [id], onDelete: Cascade)
+  // Akun yang masih punya transaksi tidak bisa dihapus. NoAction, bukan
+  // Restrict: saat user dihapus, cascade ke Account dan Transaction terjadi
+  // dalam satu statement, dan Restrict akan gagal kalau Account kebetulan
+  // terhapus lebih dulu. NoAction baru diperiksa di akhir statement.
+  account  Account     @relation(fields: [accountId], references: [id], onDelete: NoAction)
   // Pengaman lapisan database. Pemindahan ke kategori fallback dilakukan
   // eksplisit di service sebelum kategori dihapus.
   category Category?   @relation(fields: [categoryId], references: [id], onDelete: SetNull)
@@ -132,6 +174,7 @@ model Transaction {
   @@index([userId, occurredAt])
   @@index([userId, categoryId])
   @@index([userId, type, occurredAt])
+  @@index([accountId])
   @@index([goalId])
 }
 

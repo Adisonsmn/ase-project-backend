@@ -8,6 +8,11 @@ import { buildMeta } from "../schemas/common.schema";
 import { AppError } from "../utils/app.error";
 import { formatMoney, toDecimal } from "../utils/money";
 import { endOfLocalDay, startOfLocalDay } from "../utils/datetime";
+import {
+  getAccountBalance,
+  getUsableAccount,
+  resolveAccountId,
+} from "./account.service";
 import { getUsableCategory } from "./category.service";
 
 const transactionSelect = {
@@ -18,6 +23,9 @@ const transactionSelect = {
   occurredAt: true,
   createdAt: true,
   goalId: true,
+  account: {
+    select: { id: true, name: true, icon: true, type: true },
+  },
   category: {
     select: { id: true, name: true, icon: true, type: true },
   },
@@ -31,6 +39,12 @@ type RawTransaction = {
   occurredAt: Date;
   createdAt: Date;
   goalId: string | null;
+  account: {
+    id: string;
+    name: string;
+    icon: string | null;
+    type: string;
+  };
   category: {
     id: string;
     name: string;
@@ -43,6 +57,18 @@ type RawTransaction = {
 const toResponse = (transaction: RawTransaction) => ({
   ...transaction,
   amount: formatMoney(transaction.amount as never),
+});
+
+/**
+ * Respons tulis menyertakan saldo terbaru akunnya, supaya frontend bisa
+ * langsung memberi peringatan kalau saldonya jadi negatif.
+ */
+const withAccountBalance = async (
+  userId: string,
+  transaction: RawTransaction,
+) => ({
+  ...toResponse(transaction),
+  accountBalance: await getAccountBalance(userId, transaction.account.id),
 });
 
 /**
@@ -125,10 +151,12 @@ export const createTransaction = async (
   );
 
   const goalId = await resolveGoalId(userId, input.goalId, input.type);
+  const accountId = await resolveAccountId(userId, input.accountId);
 
   const transaction = await prisma.transaction.create({
     data: {
       userId,
+      accountId,
       categoryId,
       goalId,
       type: input.type,
@@ -139,18 +167,19 @@ export const createTransaction = async (
     select: transactionSelect,
   });
 
-  return toResponse(transaction as RawTransaction);
+  return withAccountBalance(userId, transaction as RawTransaction);
 };
 
 export const listTransactions = async (
   userId: string,
   query: ListTransactionQuery,
 ) => {
-  const { page, limit, from, to, categoryId, type } = query;
+  const { page, limit, from, to, accountId, categoryId, type } = query;
 
   const where = {
     userId,
     ...(type && { type }),
+    ...(accountId && { accountId }),
     ...(categoryId && { categoryId }),
     ...((from || to) && {
       occurredAt: {
@@ -209,6 +238,13 @@ export const updateTransaction = async (
 
   const goalId = await resolveGoalId(userId, input.goalId, nextType);
 
+  // Hanya pindah ke akun yang masih aktif. Transaksi yang sudah ada di akun
+  // arsip tetap boleh diubah tanpa memindahkannya.
+  const accountId =
+    input.accountId === undefined
+      ? undefined
+      : (await getUsableAccount(userId, input.accountId)).id;
+
   const transaction = await prisma.transaction.update({
     where: { id },
     data: {
@@ -216,13 +252,14 @@ export const updateTransaction = async (
       ...(input.amount !== undefined && { amount: toDecimal(input.amount) }),
       ...(input.note !== undefined && { note: input.note }),
       ...(input.occurredAt !== undefined && { occurredAt: input.occurredAt }),
+      ...(accountId !== undefined && { accountId }),
       ...(categoryId !== undefined && { categoryId }),
       ...(goalId !== undefined && { goalId }),
     },
     select: transactionSelect,
   });
 
-  return toResponse(transaction as RawTransaction);
+  return withAccountBalance(userId, transaction as RawTransaction);
 };
 
 export const deleteTransaction = async (userId: string, id: string) => {

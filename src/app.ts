@@ -6,6 +6,7 @@ import { env } from "./config/env";
 import authRoutes from "./routes/auth.routes";
 import userRoutes from "./routes/user.routes";
 import healthRoutes from "./routes/health.routes";
+import accountRoutes from "./routes/account.routes";
 import categoryRoutes from "./routes/category.routes";
 import transactionRoutes from "./routes/transaction.routes";
 import savingsRoutes from "./routes/savings.routes";
@@ -54,6 +55,7 @@ app.use(express.json({ limit: "100kb" }));
 // 6. Routes
 app.use("/api/v1/auth", authRoutes);
 app.use("/api/v1/users", userRoutes);
+app.use("/api/v1/accounts", accountRoutes);
 app.use("/api/v1/categories", categoryRoutes);
 app.use("/api/v1/transactions", transactionRoutes);
 app.use("/api/v1/savings", savingsRoutes);

@@ -123,6 +123,30 @@ describe("updateTransactionSchema", () => {
     );
     expect(result.success).toBe(false);
   });
+
+  test("bisa memindahkan transaksi ke akun lain", () => {
+    expect(
+      updateTransactionSchema.safeParse(
+        wrap({ params, body: { accountId: "00000000-0000-4000-8000-0000000a0002" } }),
+      ).success,
+    ).toBe(true);
+  });
+});
+
+describe("createTransactionSchema — akun", () => {
+  test("accountId boleh kosong (dipakai akun default)", () => {
+    expect(
+      createTransactionSchema.safeParse(wrap({ body: validTransaction })).success,
+    ).toBe(true);
+  });
+
+  test("menolak accountId bukan UUID", () => {
+    expect(
+      createTransactionSchema.safeParse(
+        wrap({ body: { ...validTransaction, accountId: "tunai" } }),
+      ).success,
+    ).toBe(false);
+  });
 });
 
 describe("listTransactionQuerySchema", () => {
