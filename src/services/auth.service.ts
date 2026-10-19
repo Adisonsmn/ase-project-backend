@@ -5,6 +5,7 @@ import type {
   LoginInput,
   RefreshInput,
 } from "../schemas/auth.schema";
+import { DEFAULT_ACCOUNTS } from "../utils/account";
 import { AppError } from "../utils/app.error";
 import {
   createAccessToken,
@@ -87,12 +88,15 @@ export const register = async (input: RegisterInput) => {
   const passwordHash = await hashPassword(input.password);
   const dateOfBirth = input.dateOfBirth ? new Date(input.dateOfBirth) : null;
 
+  // Akun bawaan dibuat bersama user dalam satu query, jadi tidak pernah ada
+  // user tanpa akun default.
   const user = await prisma.user.create({
     data: {
       email: input.email,
       username: input.username,
       passwordHash,
       dateOfBirth,
+      accounts: { create: DEFAULT_ACCOUNTS },
     },
   });
 

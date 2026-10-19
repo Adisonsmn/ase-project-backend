@@ -1,12 +1,18 @@
 import { prisma } from "../src/config/database";
 import { env } from "../src/config/env";
 import { hashPassword } from "../src/utils/password";
+import {
+  DEFAULT_ACCOUNTS,
+  TRANSFER_FEE_CATEGORY_ID,
+} from "../src/utils/account";
+import { listAccounts } from "../src/services/account.service";
 import { refreshProgress } from "../src/services/goal.service";
 import type { TransactionType } from "../generated/prisma/enums";
 
 /**
- * Data demo untuk mengisi tampilan frontend: satu akun USER beserta transaksi
- * tiga bulan terakhir, target tabungan, rasio tabungan, dan bookmark.
+ * Data demo untuk mengisi tampilan frontend: satu akun USER beserta dompetnya
+ * (Tunai, Kartu Bank, Tabungan), transaksi dan transfer tiga bulan terakhir,
+ * target tabungan, rasio tabungan, dan bookmark.
  *
  * Idempotent dengan cara reset: setiap kali dijalankan, seluruh data milik
  * akun demo dihapus lalu dibuat ulang dengan tanggal relatif terhadap hari
@@ -27,6 +33,7 @@ const category = {
   tabungan: "00000000-0000-4000-8000-000000000005",
   kesehatan: "00000000-0000-4000-8000-000000000006",
   belanja: "00000000-0000-4000-8000-000000000007",
+  biayaAdmin: TRANSFER_FEE_CATEGORY_ID,
   uangSaku: "00000000-0000-4000-8000-000000000011",
   hadiah: "00000000-0000-4000-8000-000000000013",
   penjualan: "00000000-0000-4000-8000-000000000014",
@@ -39,9 +46,32 @@ const goal = {
   sepatu: "00000000-0000-4000-8000-0000000d0003",
 };
 
+// Akun bawaan yang sama seperti saat register, dengan id tetap dan saldo awal.
+const account = {
+  tunai: "00000000-0000-4000-8000-0000000a0001",
+  bank: "00000000-0000-4000-8000-0000000a0002",
+  tabungan: "00000000-0000-4000-8000-0000000a0003",
+};
+
+const accountSeed: Record<string, { id: string; openingBalance: string }> = {
+  Tunai: { id: account.tunai, openingBalance: "600000" },
+  "Kartu Bank": { id: account.bank, openingBalance: "1000000" },
+  Tabungan: { id: account.tabungan, openingBalance: "750000" },
+};
+
+// Uang saku masuk ke rekening, dan menabung serta kebutuhan bulanan dibayar
+// dari rekening. Sisanya dibayar tunai.
+const bankCategories = new Set([
+  category.uangSaku,
+  category.tabungan,
+  category.belanja,
+  category.pendidikan,
+]);
+
 type DemoTransaction = {
   type: TransactionType;
   amount: string;
+  accountId: string;
   categoryId: string;
   goalId?: string;
   note: string;
@@ -80,6 +110,7 @@ const monthTransactions = (offset: number): DemoTransaction[] => {
   ): DemoTransaction => ({
     type,
     amount,
+    accountId: bankCategories.has(categoryId) ? account.bank : account.tunai,
     categoryId,
     goalId,
     note,
@@ -122,6 +153,35 @@ const monthTransactions = (offset: number): DemoTransaction[] => {
   return list;
 };
 
+type DemoTransfer = {
+  fromAccountId: string;
+  toAccountId: string;
+  amount: string;
+  fee: string | null;
+  note: string;
+  occurredAt: Date;
+};
+
+/** Transfer bulanan: tarik tunai dari rekening (berbiaya) dan isi celengan. */
+const monthTransfers = (offset: number): DemoTransfer[] => [
+  {
+    fromAccountId: account.bank,
+    toAccountId: account.tunai,
+    amount: "300000",
+    fee: "2500",
+    note: "Tarik tunai",
+    occurredAt: dateIn(offset, 5),
+  },
+  {
+    fromAccountId: account.tunai,
+    toAccountId: account.tabungan,
+    amount: "50000",
+    fee: null,
+    note: "Isi celengan",
+    occurredAt: dateIn(offset, 25),
+  },
+];
+
 const seedDemo = async () => {
   if (env.NODE_ENV === "production") {
     throw new Error("Seed demo tidak boleh dijalankan dengan NODE_ENV=production.");
@@ -141,6 +201,9 @@ const seedDemo = async () => {
   const now = new Date();
   const transactions = [2, 1, 0]
     .flatMap(monthTransactions)
+    .filter((t) => t.occurredAt <= now);
+  const transfers = [2, 1, 0]
+    .flatMap(monthTransfers)
     .filter((t) => t.occurredAt <= now);
 
   const publishedArticles = await prisma.article.findMany({
@@ -162,11 +225,22 @@ const seedDemo = async () => {
       update: { passwordHash, isActive: true },
     });
 
-    // Reset data milik akun demo saja.
+    // Reset data milik akun demo saja. Transaksi dan transfer dihapus sebelum
+    // akunnya.
     await tx.transaction.deleteMany({ where: { userId: user.id } });
+    await tx.transfer.deleteMany({ where: { userId: user.id } });
+    await tx.account.deleteMany({ where: { userId: user.id } });
     await tx.savingGoal.deleteMany({ where: { userId: user.id } });
     await tx.savingRatio.deleteMany({ where: { userId: user.id } });
     await tx.bookmark.deleteMany({ where: { userId: user.id } });
+
+    await tx.account.createMany({
+      data: DEFAULT_ACCOUNTS.map((a) => ({
+        ...a,
+        ...accountSeed[a.name]!,
+        userId: user.id,
+      })),
+    });
 
     await tx.savingGoal.createMany({
       data: [
@@ -199,6 +273,30 @@ const seedDemo = async () => {
       data: transactions.map((t) => ({ ...t, userId: user.id })),
     });
 
+    // Bentuknya sama seperti POST /transfers: biaya admin = pengeluaran
+    // berkategori Biaya Admin dari akun asal.
+    for (const { fee, ...transfer } of transfers) {
+      await tx.transfer.create({
+        data: {
+          ...transfer,
+          userId: user.id,
+          ...(fee && {
+            feeTransaction: {
+              create: {
+                userId: user.id,
+                accountId: transfer.fromAccountId,
+                categoryId: category.biayaAdmin,
+                type: "EXPENSE",
+                amount: fee,
+                note: "Biaya admin transfer",
+                occurredAt: transfer.occurredAt,
+              },
+            },
+          }),
+        },
+      });
+    }
+
     await tx.savingRatio.create({
       data: {
         userId: user.id,
@@ -225,7 +323,12 @@ const seedDemo = async () => {
     );
   }
 
+  for (const item of await listAccounts(user.id, false)) {
+    console.log(`Akun "${item.name}": saldo ${item.balance}`);
+  }
+
   console.log(`Transaksi: ${transactions.length}`);
+  console.log(`Transfer: ${transfers.length}`);
   console.log(
     publishedArticles.length > 0
       ? `Bookmark: ${publishedArticles.length}`

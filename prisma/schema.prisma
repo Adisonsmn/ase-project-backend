@@ -48,6 +48,16 @@ enum ArticleStatus {
   PUBLISHED
 }
 
+/// Jenis akun hanya untuk label dan ikon. Aplikasi tidak terhubung ke bank
+/// atau e-wallet sungguhan (PRD 1.3).
+enum AccountType {
+  CASH
+  BANK
+  EWALLET
+  SAVINGS
+  OTHER
+}
+
 model User {
   id           String    @id @default(uuid())
   email        String    @unique
@@ -61,8 +71,10 @@ model User {
   updatedAt    DateTime  @updatedAt
 
   sessions     Session[]
+  accounts     Account[]
   categories   Category[]
   transactions Transaction[]
+  transfers    Transfer[]
   savingRatio  SavingRatio?
   goals        SavingGoal[]
   articles     Article[]
@@ -108,12 +120,70 @@ model Category {
   @@index([userId])
 }
 
+/// Tempat uang disimpan: dompet, rekening, celengan. Saldo sengaja tidak
+/// disimpan sebagai kolom, tetapi dihitung dari saldo awal, transaksi, dan
+/// transfer, supaya tidak pernah melenceng dari catatan.
+model Account {
+  id             String      @id @default(uuid())
+  userId         String
+  name           String
+  type           AccountType
+  icon           String?
+  openingBalance Decimal     @default(0) @db.Decimal(14, 2)
+  /// Dipakai kalau transaksi dicatat tanpa accountId. Tepat satu per user,
+  /// dijaga service.
+  isDefault      Boolean     @default(false)
+  /// Akun lama diarsipkan, bukan dihapus, supaya riwayatnya tetap utuh.
+  isArchived     Boolean     @default(false)
+  createdAt      DateTime    @default(now())
+  updatedAt      DateTime    @updatedAt
+
+  user         User          @relation(fields: [userId], references: [id], onDelete: Cascade)
+  transactions Transaction[]
+  transfersOut Transfer[]    @relation("TransferFrom")
+  transfersIn  Transfer[]    @relation("TransferTo")
+
+  @@unique([userId, name])
+  @@index([userId, isArchived])
+}
+
+/// Perpindahan uang antar akun milik user yang sama, mis. tarik tunai.
+/// Bukan pemasukan atau pengeluaran, jadi tidak dicatat sebagai Transaction
+/// dan tidak memengaruhi laporan. Biaya admin dicatat sebagai Transaction
+/// EXPENSE bertaut (feeTransaction), jadi ikut laporan pengeluaran tanpa
+/// disimpan dua kali.
+model Transfer {
+  id            String   @id @default(uuid())
+  userId        String
+  fromAccountId String
+  toAccountId   String
+  amount        Decimal  @db.Decimal(14, 2)
+  note          String?
+  occurredAt    DateTime
+  createdAt     DateTime @default(now())
+  updatedAt     DateTime @updatedAt
+
+  user           User         @relation(fields: [userId], references: [id], onDelete: Cascade)
+  // NoAction dengan alasan yang sama seperti Transaction.account.
+  fromAccount    Account      @relation("TransferFrom", fields: [fromAccountId], references: [id], onDelete: NoAction)
+  toAccount      Account      @relation("TransferTo", fields: [toAccountId], references: [id], onDelete: NoAction)
+  feeTransaction Transaction?
+
+  @@index([userId, occurredAt])
+  @@index([fromAccountId])
+  @@index([toAccountId])
+}
+
 model Transaction {
   id         String          @id @default(uuid())
   userId     String
+  accountId  String
   categoryId String?
   /// Transaksi tabungan yang ditautkan ke sebuah target.
   goalId     String?
+  /// Terisi kalau transaksi ini biaya admin sebuah transfer. Diubah dan
+  /// dihapus lewat transfernya, bukan langsung.
+  transferId String?         @unique
   type       TransactionType
   amount     Decimal         @db.Decimal(14, 2)
   note       String?
@@ -123,15 +193,23 @@ model Transaction {
   updatedAt  DateTime        @updatedAt
 
   user     User        @relation(fields: [userId], references: [id], onDelete: Cascade)
+  // Akun yang masih punya transaksi tidak bisa dihapus. NoAction, bukan
+  // Restrict: saat user dihapus, cascade ke Account dan Transaction terjadi
+  // dalam satu statement, dan Restrict akan gagal kalau Account kebetulan
+  // terhapus lebih dulu. NoAction baru diperiksa di akhir statement.
+  account  Account     @relation(fields: [accountId], references: [id], onDelete: NoAction)
   // Pengaman lapisan database. Pemindahan ke kategori fallback dilakukan
   // eksplisit di service sebelum kategori dihapus.
   category Category?   @relation(fields: [categoryId], references: [id], onDelete: SetNull)
   // Menghapus goal tidak menghapus transaksinya; tautannya saja yang dilepas.
   goal     SavingGoal? @relation(fields: [goalId], references: [id], onDelete: SetNull)
+  // Biaya admin ikut terhapus bersama transfernya.
+  transfer Transfer?   @relation(fields: [transferId], references: [id], onDelete: Cascade)
 
   @@index([userId, occurredAt])
   @@index([userId, categoryId])
   @@index([userId, type, occurredAt])
+  @@index([accountId])
   @@index([goalId])
 }
 

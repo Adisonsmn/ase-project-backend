@@ -4,8 +4,8 @@ import { endOfToday } from "../utils/datetime";
 
 const amount = moneySchema;
 
-/** Terima "YYYY-MM-DD" maupun ISO datetime lengkap. */
-const occurredAt = z
+/** Terima "YYYY-MM-DD" maupun ISO datetime lengkap. Dipakai juga oleh transfer. */
+export const occurredAt = z
   .union([z.iso.date(), z.iso.datetime({ offset: true })])
   .transform((value) => new Date(value))
   .refine(
@@ -13,12 +13,14 @@ const occurredAt = z
     "Tanggal transaksi tidak boleh di masa depan",
   );
 
-const note = z.string().trim().max(255, "Catatan maksimal 255 karakter");
+export const note = z.string().trim().max(255, "Catatan maksimal 255 karakter");
 
 export const createTransactionSchema = z.object({
   body: z.object({
     type: transactionTypeSchema,
     amount,
+    /** Kosong = akun default user. */
+    accountId: z.uuid("Format accountId tidak valid").optional(),
     categoryId: z.uuid("Format categoryId tidak valid").optional(),
     /** Tautkan transaksi tabungan ke sebuah target (F-04). */
     goalId: z.uuid("Format goalId tidak valid").nullable().optional(),
@@ -33,6 +35,7 @@ export const updateTransactionSchema = z.object({
     .object({
       type: transactionTypeSchema.optional(),
       amount: amount.optional(),
+      accountId: z.uuid("Format accountId tidak valid").optional(),
       categoryId: z.uuid("Format categoryId tidak valid").optional(),
       // null dipakai untuk melepas tautan ke target.
       goalId: z.uuid("Format goalId tidak valid").nullable().optional(),
@@ -49,6 +52,7 @@ export const listTransactionQuerySchema = z.object({
     .object({
       from: z.iso.date().optional(),
       to: z.iso.date().optional(),
+      accountId: z.uuid().optional(),
       categoryId: z.uuid().optional(),
       type: transactionTypeSchema.optional(),
       page: z.coerce.number().int().min(1).default(1),

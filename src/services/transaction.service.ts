@@ -8,9 +8,14 @@ import { buildMeta } from "../schemas/common.schema";
 import { AppError } from "../utils/app.error";
 import { formatMoney, toDecimal } from "../utils/money";
 import { endOfLocalDay, startOfLocalDay } from "../utils/datetime";
+import {
+  getAccountBalance,
+  getUsableAccount,
+  resolveAccountId,
+} from "./account.service";
 import { getUsableCategory } from "./category.service";
 
-const transactionSelect = {
+export const transactionSelect = {
   id: true,
   type: true,
   amount: true,
@@ -18,12 +23,16 @@ const transactionSelect = {
   occurredAt: true,
   createdAt: true,
   goalId: true,
+  transferId: true,
+  account: {
+    select: { id: true, name: true, icon: true, type: true },
+  },
   category: {
     select: { id: true, name: true, icon: true, type: true },
   },
 } as const;
 
-type RawTransaction = {
+export type RawTransaction = {
   id: string;
   type: "INCOME" | "EXPENSE";
   amount: unknown;
@@ -31,6 +40,13 @@ type RawTransaction = {
   occurredAt: Date;
   createdAt: Date;
   goalId: string | null;
+  transferId: string | null;
+  account: {
+    id: string;
+    name: string;
+    icon: string | null;
+    type: string;
+  };
   category: {
     id: string;
     name: string;
@@ -40,9 +56,21 @@ type RawTransaction = {
 };
 
 /** amount diubah ke string agar presisi Decimal tidak hilang di JSON. */
-const toResponse = (transaction: RawTransaction) => ({
+export const toResponse = (transaction: RawTransaction) => ({
   ...transaction,
   amount: formatMoney(transaction.amount as never),
+});
+
+/**
+ * Respons tulis menyertakan saldo terbaru akunnya, supaya frontend bisa
+ * langsung memberi peringatan kalau saldonya jadi negatif.
+ */
+const withAccountBalance = async (
+  userId: string,
+  transaction: RawTransaction,
+) => ({
+  ...toResponse(transaction),
+  accountBalance: await getAccountBalance(userId, transaction.account.id),
 });
 
 /**
@@ -114,6 +142,20 @@ const getOwnedTransaction = async (userId: string, id: string) => {
   return transaction;
 };
 
+/**
+ * Biaya admin transfer hanya boleh berubah lewat transfernya. Kalau diubah
+ * langsung, nominal, akun, atau tanggalnya bisa tidak cocok lagi dengan
+ * transfer yang ditampilkan.
+ */
+const assertNotTransferFee = (transaction: { transferId: string | null }) => {
+  if (transaction.transferId) {
+    throw new AppError(
+      409,
+      "Ini biaya admin transfer. Ubah atau hapus lewat transfernya.",
+    );
+  }
+};
+
 export const createTransaction = async (
   userId: string,
   input: CreateTransactionInput,
@@ -125,10 +167,12 @@ export const createTransaction = async (
   );
 
   const goalId = await resolveGoalId(userId, input.goalId, input.type);
+  const accountId = await resolveAccountId(userId, input.accountId);
 
   const transaction = await prisma.transaction.create({
     data: {
       userId,
+      accountId,
       categoryId,
       goalId,
       type: input.type,
@@ -139,18 +183,19 @@ export const createTransaction = async (
     select: transactionSelect,
   });
 
-  return toResponse(transaction as RawTransaction);
+  return withAccountBalance(userId, transaction as RawTransaction);
 };
 
 export const listTransactions = async (
   userId: string,
   query: ListTransactionQuery,
 ) => {
-  const { page, limit, from, to, categoryId, type } = query;
+  const { page, limit, from, to, accountId, categoryId, type } = query;
 
   const where = {
     userId,
     ...(type && { type }),
+    ...(accountId && { accountId }),
     ...(categoryId && { categoryId }),
     ...((from || to) && {
       occurredAt: {
@@ -194,6 +239,7 @@ export const updateTransaction = async (
   input: UpdateTransactionInput,
 ) => {
   const existing = await getOwnedTransaction(userId, id);
+  assertNotTransferFee(existing);
 
   const nextType = input.type ?? existing.type;
 
@@ -209,6 +255,13 @@ export const updateTransaction = async (
 
   const goalId = await resolveGoalId(userId, input.goalId, nextType);
 
+  // Hanya pindah ke akun yang masih aktif. Transaksi yang sudah ada di akun
+  // arsip tetap boleh diubah tanpa memindahkannya.
+  const accountId =
+    input.accountId === undefined
+      ? undefined
+      : (await getUsableAccount(userId, input.accountId)).id;
+
   const transaction = await prisma.transaction.update({
     where: { id },
     data: {
@@ -216,17 +269,19 @@ export const updateTransaction = async (
       ...(input.amount !== undefined && { amount: toDecimal(input.amount) }),
       ...(input.note !== undefined && { note: input.note }),
       ...(input.occurredAt !== undefined && { occurredAt: input.occurredAt }),
+      ...(accountId !== undefined && { accountId }),
       ...(categoryId !== undefined && { categoryId }),
       ...(goalId !== undefined && { goalId }),
     },
     select: transactionSelect,
   });
 
-  return toResponse(transaction as RawTransaction);
+  return withAccountBalance(userId, transaction as RawTransaction);
 };
 
 export const deleteTransaction = async (userId: string, id: string) => {
-  await getOwnedTransaction(userId, id);
+  const existing = await getOwnedTransaction(userId, id);
+  assertNotTransferFee(existing);
 
   await prisma.transaction.delete({ where: { id } });
 

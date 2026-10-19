@@ -182,6 +182,10 @@ dari schema Zod yang dipakai untuk validasi, jadi tidak bisa melenceng dari peri
 | POST   | `/api/v1/auth/logout`           | –    | Cabut sesi                                       |
 | GET    | `/api/v1/users/me`              | ✔    | Profil sendiri                                   |
 | PATCH  | `/api/v1/users/me`              | ✔    | Ubah profil sendiri                              |
+| GET    | `/api/v1/accounts`              | ✔    | Akun (Tunai, Kartu Bank, ...) beserta saldo      |
+| POST   | `/api/v1/accounts`              | ✔    | Tambah akun                                      |
+| PATCH  | `/api/v1/accounts/:id`          | ✔    | Ubah, jadikan default, atau arsipkan akun        |
+| DELETE | `/api/v1/accounts/:id`          | ✔    | Hapus akun yang belum pernah dipakai             |
 | GET    | `/api/v1/categories`            | ✔    | Kategori bawaan + milik sendiri                  |
 | POST   | `/api/v1/categories`            | ✔    | Tambah kategori kustom                           |
 | PATCH  | `/api/v1/categories/:id`        | ✔    | Ubah kategori sendiri                            |
@@ -204,6 +208,10 @@ dari schema Zod yang dipakai untuk validasi, jadi tidak bisa melenceng dari peri
 | GET    | `/api/v1/transactions/:id`      | ✔    | Detail transaksi                                 |
 | PATCH  | `/api/v1/transactions/:id`      | ✔    | Ubah transaksi                                   |
 | DELETE | `/api/v1/transactions/:id`      | ✔    | Hapus transaksi                                  |
+| POST   | `/api/v1/transfers`             | ✔    | Transfer antar akun (+ biaya admin opsional)     |
+| PATCH  | `/api/v1/transfers/:id`         | ✔    | Ubah transfer                                    |
+| DELETE | `/api/v1/transfers/:id`         | ✔    | Hapus transfer beserta biaya adminnya            |
+| GET    | `/api/v1/activities`            | ✔    | Timeline transaksi + transfer (untuk beranda)    |
 | GET    | `/api/v1/articles`              | –    | Daftar artikel terbit, filter `?category=<slug>` |
 | GET    | `/api/v1/articles/:slug`        | –    | Detail artikel terbit                            |
 | GET    | `/api/v1/article-categories`    | –    | Kategori artikel + jumlah artikel terbit         |

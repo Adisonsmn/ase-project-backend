@@ -7,6 +7,11 @@ import {
 } from "../schemas/auth.schema";
 import { updateMeSchema } from "../schemas/user.schema";
 import {
+  createAccountSchema,
+  listAccountQuerySchema,
+  updateAccountSchema,
+} from "../schemas/account.schema";
+import {
   listCategoryQuerySchema,
   createCategorySchema,
   updateCategorySchema,
@@ -28,6 +33,11 @@ import {
   listTransactionQuerySchema,
   summaryQuerySchema,
 } from "../schemas/transaction.schema";
+import {
+  createTransferSchema,
+  updateTransferSchema,
+} from "../schemas/transfer.schema";
+import { listActivityQuerySchema } from "../schemas/activity.schema";
 import {
   adminListArticleQuerySchema,
   articleIdParamSchema,
@@ -195,6 +205,46 @@ const routes: RouteSpec[] = [
     auth: true,
     schema: updateMeSchema,
     successDescription: "Profil setelah diperbarui",
+  },
+
+  {
+    method: "get",
+    path: "/api/v1/accounts",
+    tag: "Akun",
+    summary: "Daftar akun (dompet, rekening, celengan) beserta saldo terkini",
+    auth: true,
+    schema: listAccountQuerySchema,
+    successDescription: "Daftar akun; akun default di urutan pertama",
+  },
+  {
+    method: "post",
+    path: "/api/v1/accounts",
+    tag: "Akun",
+    summary: "Tambah akun. Nama unik per user, maksimal 20 akun",
+    auth: true,
+    schema: createAccountSchema,
+    successStatus: 201,
+    successDescription: "Akun yang dibuat beserta saldonya",
+  },
+  {
+    method: "patch",
+    path: "/api/v1/accounts/{id}",
+    tag: "Akun",
+    summary:
+      "Ubah akun, pindahkan default (isDefault: true), atau arsipkan. Akun default tidak bisa diarsipkan",
+    auth: true,
+    schema: updateAccountSchema,
+    successDescription: "Akun setelah diperbarui beserta saldonya",
+  },
+  {
+    method: "delete",
+    path: "/api/v1/accounts/{id}",
+    tag: "Akun",
+    summary:
+      "Hapus akun tanpa riwayat. Akun yang pernah dipakai dijawab 409; arsipkan saja",
+    auth: true,
+    schema: updateAccountSchema,
+    successDescription: "Pesan konfirmasi",
   },
 
   {
@@ -410,6 +460,46 @@ const routes: RouteSpec[] = [
   },
 
   {
+    method: "post",
+    path: "/api/v1/transfers",
+    tag: "Transfer",
+    summary:
+      "Pindahkan uang antar akun sendiri. Biaya admin (fee) dicatat sebagai pengeluaran kategori Biaya Admin dari akun asal",
+    auth: true,
+    schema: createTransferSchema,
+    successStatus: 201,
+    successDescription: "Transfer beserta saldo terbaru akun asal dan tujuan",
+  },
+  {
+    method: "patch",
+    path: "/api/v1/transfers/{id}",
+    tag: "Transfer",
+    summary: "Ubah transfer. fee: 0 menghapus biaya admin",
+    auth: true,
+    schema: updateTransferSchema,
+    successDescription: "Transfer beserta saldo terbaru akun asal dan tujuan",
+  },
+  {
+    method: "delete",
+    path: "/api/v1/transfers/{id}",
+    tag: "Transfer",
+    summary: "Hapus transfer beserta biaya adminnya",
+    auth: true,
+    schema: updateTransferSchema,
+    successDescription: "Transfer dihapus",
+  },
+  {
+    method: "get",
+    path: "/api/v1/activities",
+    tag: "Aktivitas",
+    summary:
+      "Timeline gabungan transaksi dan transfer, terbaru dulu. Setiap item punya kind: TRANSACTION atau TRANSFER",
+    auth: true,
+    schema: listActivityQuerySchema,
+    successDescription: "Daftar aktivitas + meta pagination",
+  },
+
+  {
     method: "get",
     path: "/api/v1/articles",
     tag: "Artikel",
@@ -577,6 +667,7 @@ export const buildOpenApiDocument = () => {
       { name: "Health", description: "Monitoring" },
       { name: "Auth", description: "Registrasi, login, rotasi token" },
       { name: "User", description: "Profil pengguna" },
+      { name: "Akun", description: "Dompet, rekening, dan celengan beserta saldonya" },
       { name: "Kategori", description: "Kategori transaksi (F-07)" },
       { name: "Rasio Menabung", description: "Saran alokasi dana (F-01..F-03)" },
       {
@@ -584,6 +675,8 @@ export const buildOpenApiDocument = () => {
         description: "Goal, analisis gap, dan saran income (F-04..F-06)",
       },
       { name: "Transaksi", description: "Catatan keuangan & laporan (F-07..F-09)" },
+      { name: "Transfer", description: "Perpindahan uang antar akun sendiri" },
+      { name: "Aktivitas", description: "Timeline transaksi dan transfer" },
       { name: "Artikel", description: "Artikel & berita keuangan (F-14..F-15)" },
       { name: "Bookmark", description: "Artikel favorit (F-16)" },
     ],
