@@ -21,20 +21,29 @@ export const DEFAULT_ACCOUNTS: {
 /** Batas wajar supaya daftar akun tetap muat di layar ponsel. */
 export const MAX_ACCOUNTS_PER_USER = 20;
 
+/** Kategori sistem "Biaya Admin" (prisma/seed.ts) untuk biaya transfer. */
+export const TRANSFER_FEE_CATEGORY_ID = "00000000-0000-4000-8000-000000000008";
+
 type Amount = Money | string | number;
 
 export type BalanceParts = {
   openingBalance: Amount;
   income: Amount;
+  /** Termasuk biaya admin transfer, yang dicatat sebagai pengeluaran. */
   expense: Amount;
+  transferIn?: Amount;
+  transferOut?: Amount;
 };
 
 /**
- * Saldo = saldo awal + pemasukan - pengeluaran. Boleh negatif: pencatatan
- * mengikuti kenyataan, dan user sering belum mengisi saldo awal.
+ * Saldo = saldo awal + pemasukan - pengeluaran + transfer masuk - transfer
+ * keluar. Boleh negatif: pencatatan mengikuti kenyataan, dan user sering
+ * belum mengisi saldo awal.
  */
 export const computeBalance = (parts: BalanceParts): string =>
   new Prisma.Decimal(parts.openingBalance)
     .plus(new Prisma.Decimal(parts.income))
     .minus(new Prisma.Decimal(parts.expense))
+    .plus(new Prisma.Decimal(parts.transferIn ?? 0))
+    .minus(new Prisma.Decimal(parts.transferOut ?? 0))
     .toFixed(2);

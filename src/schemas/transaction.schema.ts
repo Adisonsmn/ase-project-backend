@@ -4,8 +4,8 @@ import { endOfToday } from "../utils/datetime";
 
 const amount = moneySchema;
 
-/** Terima "YYYY-MM-DD" maupun ISO datetime lengkap. */
-const occurredAt = z
+/** Terima "YYYY-MM-DD" maupun ISO datetime lengkap. Dipakai juga oleh transfer. */
+export const occurredAt = z
   .union([z.iso.date(), z.iso.datetime({ offset: true })])
   .transform((value) => new Date(value))
   .refine(
@@ -13,7 +13,7 @@ const occurredAt = z
     "Tanggal transaksi tidak boleh di masa depan",
   );
 
-const note = z.string().trim().max(255, "Catatan maksimal 255 karakter");
+export const note = z.string().trim().max(255, "Catatan maksimal 255 karakter");
 
 export const createTransactionSchema = z.object({
   body: z.object({

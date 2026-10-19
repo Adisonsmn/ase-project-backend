@@ -37,17 +37,35 @@ const isPrismaError = (error: unknown, code: string) =>
   error instanceof Prisma.PrismaClientKnownRequestError && error.code === code;
 
 /**
- * Saldo setiap akun, dihitung dari transaksinya dalam satu query agregat.
- * Saldo tidak disimpan sebagai kolom supaya tidak bisa melenceng dari catatan.
+ * Saldo setiap akun, dihitung dari transaksi dan transfernya lewat query
+ * agregat. Saldo tidak disimpan sebagai kolom supaya tidak bisa melenceng
+ * dari catatan.
  */
-const computeBalances = async (userId: string, accounts: AccountRow[]) => {
+const computeBalances = async (
+  userId: string,
+  accounts: Pick<AccountRow, "id" | "openingBalance">[],
+) => {
   if (accounts.length === 0) return new Map<string, string>();
 
-  const totals = await prisma.transaction.groupBy({
-    by: ["accountId", "type"],
-    where: { userId, accountId: { in: accounts.map((a) => a.id) } },
-    _sum: { amount: true },
-  });
+  const ids = accounts.map((a) => a.id);
+
+  const [totals, outgoing, incoming] = await Promise.all([
+    prisma.transaction.groupBy({
+      by: ["accountId", "type"],
+      where: { userId, accountId: { in: ids } },
+      _sum: { amount: true },
+    }),
+    prisma.transfer.groupBy({
+      by: ["fromAccountId"],
+      where: { userId, fromAccountId: { in: ids } },
+      _sum: { amount: true },
+    }),
+    prisma.transfer.groupBy({
+      by: ["toAccountId"],
+      where: { userId, toAccountId: { in: ids } },
+      _sum: { amount: true },
+    }),
+  ]);
 
   const sumOf = (accountId: string, type: "INCOME" | "EXPENSE") =>
     totals.find((row) => row.accountId === accountId && row.type === type)
@@ -60,6 +78,12 @@ const computeBalances = async (userId: string, accounts: AccountRow[]) => {
         openingBalance: account.openingBalance,
         income: sumOf(account.id, "INCOME"),
         expense: sumOf(account.id, "EXPENSE"),
+        transferOut:
+          outgoing.find((row) => row.fromAccountId === account.id)?._sum
+            .amount ?? 0,
+        transferIn:
+          incoming.find((row) => row.toAccountId === account.id)?._sum
+            .amount ?? 0,
       }),
     ]),
   );
@@ -80,18 +104,27 @@ const withBalance = async (userId: string, account: AccountRow) => {
   return result!;
 };
 
-/** Saldo terbaru satu akun, untuk disertakan di respons transaksi. */
-export const getAccountBalance = async (userId: string, accountId: string) => {
-  const account = await prisma.account.findFirst({
-    where: { id: accountId, userId },
-    select: accountSelect,
+/** Saldo terbaru beberapa akun, untuk disertakan di respons transaksi dan transfer. */
+export const getAccountBalances = async (
+  userId: string,
+  accountIds: string[],
+) => {
+  const accounts = await prisma.account.findMany({
+    where: { id: { in: accountIds }, userId },
+    select: { id: true, openingBalance: true },
   });
 
-  if (!account) {
+  return computeBalances(userId, accounts);
+};
+
+export const getAccountBalance = async (userId: string, accountId: string) => {
+  const balance = (await getAccountBalances(userId, [accountId])).get(accountId);
+
+  if (balance === undefined) {
     throw new AppError(404, "Akun tidak ditemukan");
   }
 
-  return (await withBalance(userId, account)).balance;
+  return balance;
 };
 
 const getOwnedAccount = async (userId: string, accountId: string) => {
@@ -288,10 +321,15 @@ export const deleteAccount = async (userId: string, accountId: string) => {
   }
 
   const historyMessage =
-    "Akun ini masih punya riwayat transaksi. Arsipkan saja supaya riwayatnya tetap ada.";
+    "Akun ini masih punya riwayat transaksi atau transfer. Arsipkan saja supaya riwayatnya tetap ada.";
 
-  const used = await prisma.transaction.count({ where: { accountId } });
-  if (used > 0) {
+  const [transactions, transfers] = await Promise.all([
+    prisma.transaction.count({ where: { accountId } }),
+    prisma.transfer.count({
+      where: { OR: [{ fromAccountId: accountId }, { toAccountId: accountId }] },
+    }),
+  ]);
+  if (transactions + transfers > 0) {
     throw new AppError(409, historyMessage);
   }
 

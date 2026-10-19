@@ -15,7 +15,7 @@ import {
 } from "./account.service";
 import { getUsableCategory } from "./category.service";
 
-const transactionSelect = {
+export const transactionSelect = {
   id: true,
   type: true,
   amount: true,
@@ -23,6 +23,7 @@ const transactionSelect = {
   occurredAt: true,
   createdAt: true,
   goalId: true,
+  transferId: true,
   account: {
     select: { id: true, name: true, icon: true, type: true },
   },
@@ -31,7 +32,7 @@ const transactionSelect = {
   },
 } as const;
 
-type RawTransaction = {
+export type RawTransaction = {
   id: string;
   type: "INCOME" | "EXPENSE";
   amount: unknown;
@@ -39,6 +40,7 @@ type RawTransaction = {
   occurredAt: Date;
   createdAt: Date;
   goalId: string | null;
+  transferId: string | null;
   account: {
     id: string;
     name: string;
@@ -54,7 +56,7 @@ type RawTransaction = {
 };
 
 /** amount diubah ke string agar presisi Decimal tidak hilang di JSON. */
-const toResponse = (transaction: RawTransaction) => ({
+export const toResponse = (transaction: RawTransaction) => ({
   ...transaction,
   amount: formatMoney(transaction.amount as never),
 });
@@ -140,6 +142,20 @@ const getOwnedTransaction = async (userId: string, id: string) => {
   return transaction;
 };
 
+/**
+ * Biaya admin transfer hanya boleh berubah lewat transfernya. Kalau diubah
+ * langsung, nominal, akun, atau tanggalnya bisa tidak cocok lagi dengan
+ * transfer yang ditampilkan.
+ */
+const assertNotTransferFee = (transaction: { transferId: string | null }) => {
+  if (transaction.transferId) {
+    throw new AppError(
+      409,
+      "Ini biaya admin transfer. Ubah atau hapus lewat transfernya.",
+    );
+  }
+};
+
 export const createTransaction = async (
   userId: string,
   input: CreateTransactionInput,
@@ -223,6 +239,7 @@ export const updateTransaction = async (
   input: UpdateTransactionInput,
 ) => {
   const existing = await getOwnedTransaction(userId, id);
+  assertNotTransferFee(existing);
 
   const nextType = input.type ?? existing.type;
 
@@ -263,7 +280,8 @@ export const updateTransaction = async (
 };
 
 export const deleteTransaction = async (userId: string, id: string) => {
-  await getOwnedTransaction(userId, id);
+  const existing = await getOwnedTransaction(userId, id);
+  assertNotTransferFee(existing);
 
   await prisma.transaction.delete({ where: { id } });
 

@@ -208,6 +208,10 @@ dari schema Zod yang dipakai untuk validasi, jadi tidak bisa melenceng dari peri
 | GET    | `/api/v1/transactions/:id`      | ✔    | Detail transaksi                                 |
 | PATCH  | `/api/v1/transactions/:id`      | ✔    | Ubah transaksi                                   |
 | DELETE | `/api/v1/transactions/:id`      | ✔    | Hapus transaksi                                  |
+| POST   | `/api/v1/transfers`             | ✔    | Transfer antar akun (+ biaya admin opsional)     |
+| PATCH  | `/api/v1/transfers/:id`         | ✔    | Ubah transfer                                    |
+| DELETE | `/api/v1/transfers/:id`         | ✔    | Hapus transfer beserta biaya adminnya            |
+| GET    | `/api/v1/activities`            | ✔    | Timeline transaksi + transfer (untuk beranda)    |
 | GET    | `/api/v1/articles`              | –    | Daftar artikel terbit, filter `?category=<slug>` |
 | GET    | `/api/v1/articles/:slug`        | –    | Detail artikel terbit                            |
 | GET    | `/api/v1/article-categories`    | –    | Kategori artikel + jumlah artikel terbit         |
