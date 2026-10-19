@@ -1,6 +1,8 @@
 import { Prisma } from "../../generated/prisma/client";
-import type { AgeGroup } from "../../generated/prisma/enums";
+import type { AgeGroup, IncomePeriod } from "../../generated/prisma/enums";
 import { startOfLocalDay, toLocalDateString } from "./datetime";
+import { percentageOf } from "./money";
+import { MONTHLY_FACTOR } from "./ratio";
 
 /**
  * Analisis gap target tabungan (F-04..F-06).
@@ -62,6 +64,78 @@ export const monthsUntil = (targetDate: Date, now = new Date()): number => {
   if (days <= 0) return 1;
 
   return Math.max(1, days / DAYS_PER_MONTH);
+};
+
+export type Duration = {
+  value: number;
+  unit: "DAY" | "WEEK" | "MONTH" | "YEAR";
+};
+
+/**
+ * Tenggat dari jangka waktu ("3 bulan lagi"), sebagai awal hari lokal.
+ *
+ * Bulan dan tahun memakai kalender, bukan kelipatan 30 hari, dan dijepit ke
+ * akhir bulan: 31 Januari + 1 bulan = 28/29 Februari, bukan 3 Maret.
+ */
+export const addDuration = (now: Date, duration: Duration): Date => {
+  const start = startOfLocalDay(now);
+
+  if (duration.unit === "DAY" || duration.unit === "WEEK") {
+    const days = duration.value * (duration.unit === "WEEK" ? 7 : 1);
+    return new Date(start.getTime() + days * MS_PER_DAY);
+  }
+
+  // Dihitung dari tanggal lokal, bukan UTC: jam 01:00 WIB tanggal 1 masih
+  // tanggal terakhir bulan sebelumnya menurut UTC.
+  const [year, month, day] = toLocalDateString(now).split("-").map(Number) as [
+    number,
+    number,
+    number,
+  ];
+  const months = duration.value * (duration.unit === "YEAR" ? 12 : 1);
+  const targetMonthIndex = month - 1 + months;
+  const targetYear = year + Math.floor(targetMonthIndex / 12);
+  const targetMonth = targetMonthIndex % 12;
+  const lastDay = new Date(Date.UTC(targetYear, targetMonth + 1, 0)).getUTCDate();
+
+  return startOfLocalDay(
+    new Date(Date.UTC(targetYear, targetMonth, Math.min(day, lastDay))),
+  );
+};
+
+export type IncomeSchedule = {
+  amount: string;
+  period: IncomePeriod;
+  /** Pemasukan datang setiap `every` periode, mis. 2 = setiap 2 minggu. */
+  every: number;
+};
+
+export type PerIncomeBreakdown = {
+  receiptsPerMonth: number;
+  /** Yang perlu disisihkan setiap kali menerima uang. */
+  requiredPerReceipt: string;
+  /** Porsi dari setiap penerimaan. Bisa melebihi 100 kalau targetnya terlalu berat. */
+  requiredPctOfIncome: number;
+};
+
+/**
+ * Kebutuhan bulanan diterjemahkan ke ukuran yang dipahami user: "sisihkan
+ * sekian setiap kali dapat uang jajan", bukan angka bulanan.
+ */
+export const perIncomeBreakdown = (
+  requiredPerMonth: string,
+  income: IncomeSchedule,
+): PerIncomeBreakdown => {
+  const receiptsPerMonth = MONTHLY_FACTOR[income.period] / income.every;
+  const requiredPerReceipt = new Prisma.Decimal(requiredPerMonth)
+    .dividedBy(receiptsPerMonth)
+    .toDecimalPlaces(2);
+
+  return {
+    receiptsPerMonth: Number(receiptsPerMonth.toFixed(2)),
+    requiredPerReceipt: requiredPerReceipt.toFixed(2),
+    requiredPctOfIncome: percentageOf(requiredPerReceipt, income.amount),
+  };
 };
 
 export type GapInput = {
@@ -178,16 +252,17 @@ export type GapAdvice = {
 /** Pesan yang menjelaskan hasil analisis dengan bahasa sehari-hari. */
 export const buildGapAdvice = (
   result: GapResult,
-  targetTitle: string,
+  targetTitle?: string,
 ): GapAdvice[] => {
   const advice: GapAdvice[] = [];
   const rupiah = (value: string) =>
     `Rp ${Number(value).toLocaleString("id-ID")}`;
 
   if (result.isAchieved) {
+    const target = targetTitle ? `Target "${targetTitle}"` : "Target ini";
     advice.push({
       level: "success",
-      message: `Target "${targetTitle}" sudah tercapai. Saatnya menentukan target berikutnya.`,
+      message: `${target} sudah tercapai. Saatnya menentukan target berikutnya.`,
     });
     return advice;
   }

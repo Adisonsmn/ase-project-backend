@@ -194,6 +194,7 @@ dari schema Zod yang dipakai untuk validasi, jadi tidak bisa melenceng dari peri
 | GET    | `/api/v1/goals`                 | ✔    | Daftar target                                    |
 | GET    | `/api/v1/goals/:id`             | ✔    | Detail + progress terbaru                        |
 | GET    | `/api/v1/goals/:id/gap`         | ✔    | Analisis gap + rekomendasi income                |
+| POST   | `/api/v1/goals/gap/calculate`   | ✔    | Hitung gap dari isian form (tidak disimpan)      |
 | PATCH  | `/api/v1/goals/:id`             | ✔    | Ubah target                                      |
 | DELETE | `/api/v1/goals/:id`             | ✔    | Hapus target (transaksi tetap ada)               |
 | GET    | `/api/v1/income-ideas`          | ✔    | Ide penambahan income per kelompok usia          |

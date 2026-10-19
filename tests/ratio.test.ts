@@ -101,6 +101,16 @@ describe("toMonthlyAmount", () => {
     const setahunPakaiFaktor = MONTHLY_FACTOR.WEEKLY * 12;
     expect(setahunPakaiFaktor).toBeCloseTo(52.14, 1);
   });
+
+  test("200rb setiap 2 minggu setara 100rb per minggu", () => {
+    expect(toMonthlyAmount("200000", "WEEKLY", 2)).toBe(
+      toMonthlyAmount("100000", "WEEKLY"),
+    );
+  });
+
+  test("300rb setiap 3 bulan = 100rb per bulan", () => {
+    expect(toMonthlyAmount("300000", "MONTHLY", 3)).toBe("100000.00");
+  });
 });
 
 describe("isRatioValid", () => {
