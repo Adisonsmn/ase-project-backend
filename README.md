@@ -136,8 +136,8 @@ az containerapp update -n ase-backend -g ase-backend-rg --image asebackendacr01.
 | `bun test`            | Jalankan test                         |
 | `bun run typecheck`   | Cek tipe TypeScript                   |
 | `bun run db:migrate`  | Buat & terapkan migrasi (development) |
-| `bun run db:seed`     | Isi kategori bawaan, ide income, & kategori artikel (idempotent) |
-| `bun run db:seed:demo` | Reset & isi data demo (akun `demo@example.com`, transaksi 3 bulan, target, rasio, bookmark). Jalankan setelah `db:seed`; tidak bisa dijalankan saat `NODE_ENV=production` |
+| `bun run db:seed`     | Isi kategori bawaan, ide income, kategori artikel, & instrumen simulasi (idempotent) |
+| `bun run db:seed:demo` | Reset & isi data demo (akun `demo@example.com`, transaksi 3 bulan, target, rasio, bookmark, sesi simulasi). Jalankan setelah `db:seed`; tidak bisa dijalankan saat `NODE_ENV=production` |
 | `bun run db:set-role -- <email> <USER\|ADMIN>` | Ubah role user, misalnya menjadikan admin |
 | `bun run db:deploy`   | Terapkan migrasi (production)         |
 | `bun run db:generate` | Generate Prisma Client                |
@@ -223,6 +223,14 @@ dari schema Zod yang dipakai untuk validasi, jadi tidak bisa melenceng dari peri
 | POST   | `/api/v1/articles/:id/bookmark` | ✔    | Tandai artikel (idempotent)                      |
 | DELETE | `/api/v1/articles/:id/bookmark` | ✔    | Hapus tanda (idempotent)                         |
 | GET    | `/api/v1/bookmarks`             | ✔    | Artikel yang ditandai                            |
+| GET    | `/api/v1/simulation/instruments` | –   | Instrumen simulasi + harga hari ini, filter `?type=STOCK\|MUTUAL_FUND` |
+| GET    | `/api/v1/simulation/instruments/:code` | – | Detail instrumen (risiko, potensi, minimal)  |
+| GET    | `/api/v1/simulation/instruments/:code/history` | – | Grafik harga `?range=WEEK\|MONTH\|YEAR` |
+| POST   | `/api/v1/simulation/sessions/preview` | ✔ | Estimasi pembelian (tidak disimpan)            |
+| POST   | `/api/v1/simulation/sessions`   | ✔    | Mulai sesi simulasi (beli dengan modal virtual)  |
+| GET    | `/api/v1/simulation/sessions`   | ✔    | Riwayat sesi simulasi                            |
+| GET    | `/api/v1/simulation/sessions/:id` | ✔  | State sesi, grafik, event, dan hasil             |
+| POST   | `/api/v1/simulation/sessions/:id/advance` | ✔ | Maju ke checkpoint berikutnya              |
 
 ### Artikel & admin
 
@@ -247,4 +255,21 @@ Role baru berlaku setelah user tersebut me-refresh token (atau login ulang).
 database produksi. Container hanya menerapkan migrasi saat start, tidak
 menjalankan seed, sehingga tanpa langkah ini kategori artikel kosong dan
 setiap pembuatan artikel ditolak `404`.
+
+### Game simulasi investasi
+
+Satu sesi = satu instrumen dan satu kali beli dengan modal virtual
+Rp 1.000.000, lalu `advance` memajukan waktu ke 1 Hari → 1 Bulan → 6 Bulan →
+1 Tahun. Checkpoint terakhir menyelesaikan sesi dan mengisi `result`.
+
+- Harga dan instrumennya sintetis. Setiap respons membawa `disclaimer` yang
+  wajib ditampilkan permanen di layar simulasi.
+- Harga beli selalu diambil server, tidak bisa dikirim klien. Hasil sesi bisa
+  rugi; itu disengaja.
+- Seluruh perjalanan harga ditentukan `seed` sesi, tetapi respons hanya berisi
+  harga dan event sampai checkpoint yang sudah dicapai.
+- `advance` yang ditekan dua kali dijawab `409` untuk request kedua, bukan
+  melompati checkpoint.
+- Instrumen diisi lewat `bun run db:seed`, jadi jalankan seed itu setelah
+  deploy pertama fitur ini.
 
