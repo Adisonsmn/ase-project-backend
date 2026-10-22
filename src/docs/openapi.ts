@@ -38,6 +38,7 @@ import {
   updateTransferSchema,
 } from "../schemas/transfer.schema";
 import { listActivityQuerySchema } from "../schemas/activity.schema";
+import { idParamSchema } from "../schemas/common.schema";
 import {
   adminListArticleQuerySchema,
   articleIdParamSchema,
@@ -47,6 +48,13 @@ import {
   listBookmarkQuerySchema,
   updateArticleSchema,
 } from "../schemas/article.schema";
+import {
+  instrumentCodeParamSchema,
+  instrumentHistorySchema,
+  listInstrumentQuerySchema,
+  listSessionQuerySchema,
+  purchaseSchema,
+} from "../schemas/simulation.schema";
 
 /**
  * Dokumen OpenAPI dibangun langsung dari schema Zod yang dipakai
@@ -610,6 +618,84 @@ const routes: RouteSpec[] = [
     schema: listBookmarkQuerySchema,
     successDescription: "Daftar bookmark + meta pagination",
   },
+
+  {
+    method: "get",
+    path: "/api/v1/simulation/instruments",
+    tag: "Simulasi Investasi",
+    summary:
+      "Daftar instrumen simulasi beserta harga hari ini dan modal virtual awal. Publik",
+    schema: listInstrumentQuerySchema,
+    successDescription:
+      "`startingCash`, `disclaimer`, dan daftar instrumen (harga, `changePct`, risiko)",
+  },
+  {
+    method: "get",
+    path: "/api/v1/simulation/instruments/{code}",
+    tag: "Simulasi Investasi",
+    summary: "Detail instrumen: deskripsi, risiko, potensi, jangka waktu, minimal. Publik",
+    schema: instrumentCodeParamSchema,
+    successDescription: "Detail instrumen beserta harga hari ini",
+  },
+  {
+    method: "get",
+    path: "/api/v1/simulation/instruments/{code}/history",
+    tag: "Simulasi Investasi",
+    summary:
+      "Deret harga untuk grafik: WEEK 7 titik harian, MONTH 30 titik harian, YEAR 52 titik mingguan. Publik",
+    schema: instrumentHistorySchema,
+    successDescription: "Daftar `{ date, price }`, terlama di depan",
+  },
+  {
+    method: "post",
+    path: "/api/v1/simulation/sessions/preview",
+    tag: "Simulasi Investasi",
+    summary:
+      "Estimasi pembelian (harga, jumlah lembar/unit, sisa saldo) tanpa menyimpan. 400 kalau melebihi saldo virtual atau di bawah minimal",
+    auth: true,
+    schema: purchaseSchema,
+    successDescription: "Estimasi pembelian",
+  },
+  {
+    method: "post",
+    path: "/api/v1/simulation/sessions",
+    tag: "Simulasi Investasi",
+    summary:
+      "Mulai sesi: beli instrumen dengan modal virtual Rp 1.000.000 pada harga hari ini",
+    auth: true,
+    schema: purchaseSchema,
+    successStatus: 201,
+    successDescription: "Sesi baru di langkah 0 (baru membeli)",
+  },
+  {
+    method: "get",
+    path: "/api/v1/simulation/sessions",
+    tag: "Simulasi Investasi",
+    summary: "Riwayat sesi milik user, terbaru di atas",
+    auth: true,
+    schema: listSessionQuerySchema,
+    successDescription: "Ringkasan sesi + meta pagination",
+  },
+  {
+    method: "get",
+    path: "/api/v1/simulation/sessions/{id}",
+    tag: "Simulasi Investasi",
+    summary:
+      "Detail sesi: checkpoint, nilai saat ini, grafik, event, dan `result` kalau sudah selesai",
+    auth: true,
+    schema: idParamSchema,
+    successDescription: "Detail sesi",
+  },
+  {
+    method: "post",
+    path: "/api/v1/simulation/sessions/{id}/advance",
+    tag: "Simulasi Investasi",
+    summary:
+      "Maju ke checkpoint berikutnya (1 Hari, 1 Bulan, 6 Bulan, 1 Tahun). Checkpoint terakhir menyelesaikan sesi. 409 kalau sesi sudah selesai atau sudah dimajukan request lain",
+    auth: true,
+    schema: idParamSchema,
+    successDescription: "Detail sesi setelah maju, ditambah `newEvents`",
+  },
 ];
 
 export const buildOpenApiDocument = () => {
@@ -682,6 +768,10 @@ export const buildOpenApiDocument = () => {
       { name: "Aktivitas", description: "Timeline transaksi dan transfer" },
       { name: "Artikel", description: "Artikel & berita keuangan (F-14..F-15)" },
       { name: "Bookmark", description: "Artikel favorit (F-16)" },
+      {
+        name: "Simulasi Investasi",
+        description: "Game simulasi saham dan reksa dana dengan uang virtual (F-10..F-13)",
+      },
     ],
     components: {
       securitySchemes: {
