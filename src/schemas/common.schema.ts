@@ -49,9 +49,30 @@ export const percentageSchema = z
   .max(100, "Persentase maksimal 100");
 
 /**
+ * Akhiran nama domain yang hanya bermakna di jaringan lokal atau internal
+ * cloud (mis. `printer.local`, `metadata.google.internal`).
+ */
+const LOCAL_DOMAIN_SUFFIXES = [
+  "localhost",
+  "local",
+  "localdomain",
+  "internal",
+  "home.arpa",
+];
+
+const isLocalHostname = (hostname: string) => {
+  const host = hostname.toLowerCase();
+  return LOCAL_DOMAIN_SUFFIXES.some(
+    (suffix) => host === suffix || host.endsWith(`.${suffix}`),
+  );
+};
+
+/**
  * URL http(s) ke domain publik. `z.url()` polos menerima skema apa pun,
  * termasuk `javascript:` dan `data:`, yang menjadi celah XSS begitu frontend
- * merendernya sebagai tautan atau gambar.
+ * merendernya sebagai tautan atau gambar. Hostname harus nama domain, jadi IP
+ * (127.0.0.1, 169.254.169.254, [::1], juga bentuk desimal/hex yang dinormalkan
+ * `URL` menjadi IP) ikut ditolak, begitu pula domain jaringan lokal.
  */
 export const httpUrlSchema = z
   .url({
@@ -59,7 +80,11 @@ export const httpUrlSchema = z
     hostname: z.regexes.domain,
     error: "URL harus diawali http:// atau https:// dan memakai nama domain",
   })
-  .max(2048, "URL maksimal 2048 karakter");
+  .max(2048, "URL maksimal 2048 karakter")
+  .refine(
+    (value) => !URL.canParse(value) || !isLocalHostname(new URL(value).hostname),
+    "URL tidak boleh mengarah ke alamat jaringan lokal",
+  );
 
 /** Query pagination yang dipakai bersama oleh endpoint berdaftar. */
 export const paginationQuerySchema = z.object({
