@@ -1,4 +1,5 @@
 import { z } from "zod";
+import { httpUrlSchema } from "./common.schema";
 
 export const updateMeSchema = z.object({
   body: z
@@ -12,7 +13,7 @@ export const updateMeSchema = z.object({
           "Username hanya boleh berisi huruf, angka, dan underscore",
         )
         .optional(),
-      avatarUrl: z.url("Format URL avatar tidak valid").optional(),
+      avatarUrl: httpUrlSchema.optional(),
       dateOfBirth: z
         .union([z.iso.date(), z.iso.datetime({ offset: true })])
         .refine(

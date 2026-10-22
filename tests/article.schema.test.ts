@@ -50,6 +50,7 @@ describe("createArticleSchema", () => {
     ["data:", "data:text/html,<script>alert(1)</script>"],
     ["ftp:", "ftp://contoh.com/gambar.png"],
     ["tanpa domain", "https://localhost/gambar.png"],
+    ["domain lokal", "https://nas.local/gambar.png"],
   ])("menolak thumbnailUrl berskema %s", (_label, thumbnailUrl) => {
     const result = createArticleSchema.safeParse(
       wrapBody({ ...validArticle, thumbnailUrl }),
