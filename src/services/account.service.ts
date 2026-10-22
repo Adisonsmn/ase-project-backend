@@ -44,23 +44,24 @@ const isPrismaError = (error: unknown, code: string) =>
 const computeBalances = async (
   userId: string,
   accounts: Pick<AccountRow, "id" | "openingBalance">[],
+  db: Prisma.TransactionClient = prisma,
 ) => {
   if (accounts.length === 0) return new Map<string, string>();
 
   const ids = accounts.map((a) => a.id);
 
   const [totals, outgoing, incoming] = await Promise.all([
-    prisma.transaction.groupBy({
+    db.transaction.groupBy({
       by: ["accountId", "type"],
       where: { userId, accountId: { in: ids } },
       _sum: { amount: true },
     }),
-    prisma.transfer.groupBy({
+    db.transfer.groupBy({
       by: ["fromAccountId"],
       where: { userId, fromAccountId: { in: ids } },
       _sum: { amount: true },
     }),
-    prisma.transfer.groupBy({
+    db.transfer.groupBy({
       by: ["toAccountId"],
       where: { userId, toAccountId: { in: ids } },
       _sum: { amount: true },
@@ -108,13 +109,36 @@ const withBalance = async (userId: string, account: AccountRow) => {
 export const getAccountBalances = async (
   userId: string,
   accountIds: string[],
+  db: Prisma.TransactionClient = prisma,
 ) => {
-  const accounts = await prisma.account.findMany({
+  const accounts = await db.account.findMany({
     where: { id: { in: accountIds }, userId },
     select: { id: true, openingBalance: true },
   });
 
-  return computeBalances(userId, accounts);
+  return computeBalances(userId, accounts, db);
+};
+
+/**
+ * Kunci baris akun sampai transaksi database selesai, supaya dua request
+ * bersamaan tidak memakai saldo yang sama. Diurutkan per id agar tidak
+ * deadlock. NO KEY UPDATE, bukan UPDATE: insert transfer/transaksi yang
+ * merujuk akun ini (cek foreign key) tetap jalan, jadi transfer A->B dan B->A
+ * bersamaan tidak saling mengunci.
+ */
+export const lockAccounts = async (
+  tx: Prisma.TransactionClient,
+  userId: string,
+  accountIds: string[],
+) => {
+  if (accountIds.length === 0) return;
+
+  await tx.$queryRaw`
+    SELECT id FROM "Account"
+    WHERE "userId" = ${userId} AND id IN (${Prisma.join(accountIds)})
+    ORDER BY id
+    FOR NO KEY UPDATE
+  `;
 };
 
 export const getAccountBalance = async (userId: string, accountId: string) => {

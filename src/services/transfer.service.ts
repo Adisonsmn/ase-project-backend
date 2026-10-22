@@ -5,9 +5,18 @@ import type {
   UpdateTransferInput,
 } from "../schemas/transfer.schema";
 import { AppError } from "../utils/app.error";
-import { TRANSFER_FEE_CATEGORY_ID } from "../utils/account";
+import {
+  TRANSFER_FEE_CATEGORY_ID,
+  findInsufficientAccount,
+  transferBalanceChanges,
+  type TransferEffect,
+} from "../utils/account";
 import { formatMoney, toDecimal } from "../utils/money";
-import { getAccountBalances, getUsableAccount } from "./account.service";
+import {
+  getAccountBalances,
+  getUsableAccount,
+  lockAccounts,
+} from "./account.service";
 
 const accountSummary = {
   select: { id: true, name: true, icon: true, type: true },
@@ -85,6 +94,42 @@ const assertFeeCategoryExists = async () => {
   }
 };
 
+/**
+ * Tolak transfer yang membuat saldo akun mana pun di bawah nol. Dipanggil di
+ * dalam transaksi database yang sama dengan penulisannya: akun yang saldonya
+ * berkurang dikunci dulu, jadi request bersamaan menunggu lalu membaca saldo
+ * terbaru.
+ */
+const assertSufficientBalance = async (
+  tx: Prisma.TransactionClient,
+  userId: string,
+  before: TransferEffect | null,
+  after: TransferEffect,
+) => {
+  const changes = transferBalanceChanges(before, after);
+  const decreased = [...changes]
+    .filter(([, change]) => change.lessThan(0))
+    .map(([accountId]) => accountId);
+
+  if (decreased.length === 0) return;
+
+  await lockAccounts(tx, userId, decreased);
+  const balances = await getAccountBalances(userId, decreased, tx);
+
+  const shortfall = findInsufficientAccount(balances, changes);
+  if (!shortfall) return;
+
+  const account = await tx.account.findUniqueOrThrow({
+    where: { id: shortfall.accountId },
+    select: { name: true },
+  });
+
+  throw new AppError(
+    400,
+    `Saldo akun "${account.name}" tidak cukup: tersedia ${shortfall.available}, kurang ${shortfall.missing}.`,
+  );
+};
+
 /** Data transaksi biaya admin: pengeluaran dari akun asal, di waktu yang sama. */
 const feeTransactionData = (
   userId: string,
@@ -113,39 +158,53 @@ export const createTransfer = async (
   const fee = toDecimal(input.fee ?? 0);
   if (fee.greaterThan(0)) await assertFeeCategoryExists();
 
-  // Nested create: transfer dan biaya adminnya tersimpan atomik dalam satu query.
-  const transfer = await prisma.transfer.create({
-    data: {
-      userId,
+  const transfer = await prisma.$transaction(async (tx) => {
+    await assertSufficientBalance(tx, userId, null, {
       fromAccountId: input.fromAccountId,
       toAccountId: input.toAccountId,
-      amount: toDecimal(input.amount),
-      note: input.note,
-      occurredAt: input.occurredAt,
-      ...(fee.greaterThan(0) && {
-        feeTransaction: {
-          create: feeTransactionData(
-            userId,
-            input.fromAccountId,
-            fee,
-            input.occurredAt,
-          ),
-        },
-      }),
-    },
-    select: transferSelect,
+      amount: input.amount,
+      fee,
+    });
+
+    // Nested create: transfer dan biaya adminnya tersimpan bersama.
+    return tx.transfer.create({
+      data: {
+        userId,
+        fromAccountId: input.fromAccountId,
+        toAccountId: input.toAccountId,
+        amount: toDecimal(input.amount),
+        note: input.note,
+        occurredAt: input.occurredAt,
+        ...(fee.greaterThan(0) && {
+          feeTransaction: {
+            create: feeTransactionData(
+              userId,
+              input.fromAccountId,
+              fee,
+              input.occurredAt,
+            ),
+          },
+        }),
+      },
+      select: transferSelect,
+    });
   });
 
   return withBalances(userId, transfer);
 };
 
-const getOwnedTransfer = async (userId: string, id: string) => {
-  const transfer = await prisma.transfer.findFirst({
+const getOwnedTransfer = async (
+  userId: string,
+  id: string,
+  db: Prisma.TransactionClient = prisma,
+) => {
+  const transfer = await db.transfer.findFirst({
     where: { id, userId },
     select: {
       id: true,
       fromAccountId: true,
       toAccountId: true,
+      amount: true,
       occurredAt: true,
       feeTransaction: { select: { id: true, amount: true } },
     },
@@ -163,33 +222,56 @@ export const updateTransfer = async (
   id: string,
   input: UpdateTransferInput,
 ) => {
-  const existing = await getOwnedTransfer(userId, id);
-
-  const fromAccountId = input.fromAccountId ?? existing.fromAccountId;
-  const toAccountId = input.toAccountId ?? existing.toAccountId;
-  const occurredAt = input.occurredAt ?? existing.occurredAt;
-
-  // Schema hanya bisa membandingkan field yang dikirim; di sini dibandingkan
-  // dengan nilai yang akan tersimpan.
-  if (fromAccountId === toAccountId) {
-    throw new AppError(400, "Akun asal dan tujuan harus berbeda");
-  }
-
-  // Sama seperti transaksi: hanya akun yang baru dipilih yang harus aktif.
-  await Promise.all([
-    input.fromAccountId && getUsableAccount(userId, input.fromAccountId),
-    input.toAccountId && getUsableAccount(userId, input.toAccountId),
-  ]);
-
-  const fee =
-    input.fee !== undefined
-      ? toDecimal(input.fee)
-      : new Prisma.Decimal(existing.feeTransaction?.amount ?? 0);
-  const feeTransactionId = existing.feeTransaction?.id;
-
-  if (fee.greaterThan(0) && !feeTransactionId) await assertFeeCategoryExists();
-
+  // Pembacaan, pengecekan saldo, dan penulisan dalam satu transaksi database,
+  // supaya saldo dihitung dari nilai transfer yang terbaru.
   const transfer = await prisma.$transaction(async (tx) => {
+    // Edit bersamaan pada transfer yang sama menunggu di sini.
+    await tx.$queryRaw`
+      SELECT id FROM "Transfer" WHERE id = ${id} AND "userId" = ${userId} FOR UPDATE
+    `;
+    const existing = await getOwnedTransfer(userId, id, tx);
+
+    const fromAccountId = input.fromAccountId ?? existing.fromAccountId;
+    const toAccountId = input.toAccountId ?? existing.toAccountId;
+    const occurredAt = input.occurredAt ?? existing.occurredAt;
+
+    // Schema hanya bisa membandingkan field yang dikirim; di sini dibandingkan
+    // dengan nilai yang akan tersimpan.
+    if (fromAccountId === toAccountId) {
+      throw new AppError(400, "Akun asal dan tujuan harus berbeda");
+    }
+
+    // Sama seperti transaksi: hanya akun yang baru dipilih yang harus aktif.
+    await Promise.all([
+      input.fromAccountId && getUsableAccount(userId, input.fromAccountId),
+      input.toAccountId && getUsableAccount(userId, input.toAccountId),
+    ]);
+
+    const fee =
+      input.fee !== undefined
+        ? toDecimal(input.fee)
+        : new Prisma.Decimal(existing.feeTransaction?.amount ?? 0);
+    const feeTransactionId = existing.feeTransaction?.id;
+
+    if (fee.greaterThan(0) && !feeTransactionId) await assertFeeCategoryExists();
+
+    await assertSufficientBalance(
+      tx,
+      userId,
+      {
+        fromAccountId: existing.fromAccountId,
+        toAccountId: existing.toAccountId,
+        amount: existing.amount,
+        fee: existing.feeTransaction?.amount ?? 0,
+      },
+      {
+        fromAccountId,
+        toAccountId,
+        amount: input.amount ?? existing.amount,
+        fee,
+      },
+    );
+
     await tx.transfer.update({
       where: { id },
       data: {
