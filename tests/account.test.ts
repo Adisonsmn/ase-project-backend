@@ -3,6 +3,7 @@ import {
   DEFAULT_ACCOUNTS,
   computeBalance,
   findInsufficientAccount,
+  transactionBalanceChanges,
   transferBalanceChanges,
 } from "../src/utils/account";
 
@@ -19,7 +20,7 @@ describe("computeBalance", () => {
     );
   });
 
-  test("boleh negatif kalau pengeluaran melebihi saldo", () => {
+  test("data lama yang pengeluarannya melebihi saldo tetap dihitung apa adanya", () => {
     expect(computeBalance({ openingBalance: "0", income: "0", expense: "15000" })).toBe(
       "-15000.00",
     );
@@ -127,6 +128,53 @@ describe("transferBalanceChanges", () => {
       { [A]: "100000.00", [B]: "-100000.00" },
     );
   });
+
+  test("hapus transfer: asal dikembalikan amount + fee, tujuan kehilangan amount", () => {
+    expect(
+      changesOf({ fromAccountId: A, toAccountId: B, amount: "1000", fee: "2500" }, null),
+    ).toEqual({ [A]: "3500.00", [B]: "-1000.00" });
+  });
+});
+
+/** Perubahan saldo transaksi dalam bentuk string supaya mudah dibandingkan. */
+const transactionChangesOf = (...args: Parameters<typeof transactionBalanceChanges>) =>
+  Object.fromEntries(
+    [...transactionBalanceChanges(...args)].map(([id, value]) => [id, value.toFixed(2)]),
+  );
+
+describe("transactionBalanceChanges", () => {
+  test("pengeluaran baru mengurangi, pemasukan baru menambah", () => {
+    expect(transactionChangesOf(null, { accountId: A, type: "EXPENSE", amount: "15000" })).toEqual(
+      { [A]: "-15000.00" },
+    );
+    expect(transactionChangesOf(null, { accountId: A, type: "INCOME", amount: "15000" })).toEqual(
+      { [A]: "15000.00" },
+    );
+  });
+
+  test("hapus pemasukan mengurangi, hapus pengeluaran menambah", () => {
+    expect(transactionChangesOf({ accountId: A, type: "INCOME", amount: "1000" }, null)).toEqual({
+      [A]: "-1000.00",
+    });
+    expect(transactionChangesOf({ accountId: A, type: "EXPENSE", amount: "1000" }, null)).toEqual(
+      { [A]: "1000.00" },
+    );
+  });
+
+  test("pemasukan diubah jadi pengeluaran: berkurang dua kali nominalnya", () => {
+    const before = { accountId: A, type: "INCOME" as const, amount: "1000" };
+    expect(transactionChangesOf(before, { ...before, type: "EXPENSE" })).toEqual({
+      [A]: "-2000.00",
+    });
+  });
+
+  test("pindah akun: akun lama dikembalikan, akun baru dibebani", () => {
+    const before = { accountId: A, type: "INCOME" as const, amount: "1000" };
+    expect(transactionChangesOf(before, { ...before, accountId: B })).toEqual({
+      [A]: "-1000.00",
+      [B]: "1000.00",
+    });
+  });
 });
 
 describe("findInsufficientAccount", () => {
@@ -199,6 +247,67 @@ describe("findInsufficientAccount", () => {
     expect(
       check({ [A]: "-20000.00", [B]: "50000.00" }, before, { ...before, amount: "40000" }),
     ).toBeUndefined();
+  });
+
+  test("hapus transfer yang uangnya sudah terpakai di akun tujuan ditolak", () => {
+    // A -> B 1000, lalu B -> C 1000: saldo B tinggal 0.
+    expect(
+      check({ [A]: "0.00", [B]: "0.00" }, { fromAccountId: A, toAccountId: B, amount: "1000" }, null),
+    ).toEqual({ accountId: B, available: "0.00", missing: "1000.00" });
+  });
+
+  test("hapus transfer yang uangnya masih utuh diterima", () => {
+    expect(
+      check({ [A]: "0.00", [B]: "1000.00" }, { fromAccountId: A, toAccountId: B, amount: "1000" }, null),
+    ).toBeUndefined();
+  });
+});
+
+describe("findInsufficientAccount untuk transaksi", () => {
+  const check = (
+    balances: Record<string, string>,
+    ...args: Parameters<typeof transactionBalanceChanges>
+  ) =>
+    findInsufficientAccount(new Map(Object.entries(balances)), transactionBalanceChanges(...args));
+
+  test("pengeluaran melebihi saldo ditolak", () => {
+    expect(check({ [A]: "1000.00" }, null, { accountId: A, type: "EXPENSE", amount: "999999" }))
+      .toEqual({ accountId: A, available: "1000.00", missing: "998999.00" });
+  });
+
+  test("pengeluaran persis sebesar saldo diterima", () => {
+    expect(
+      check({ [A]: "1000.00" }, null, { accountId: A, type: "EXPENSE", amount: "1000" }),
+    ).toBeUndefined();
+  });
+
+  test("hapus pemasukan yang sudah ditransfer keluar ditolak", () => {
+    expect(check({ [A]: "0.00" }, { accountId: A, type: "INCOME", amount: "1000" }, null)).toEqual(
+      { accountId: A, available: "0.00", missing: "1000.00" },
+    );
+  });
+
+  test("mengecilkan pemasukan yang sudah terpakai ditolak", () => {
+    const before = { accountId: A, type: "INCOME" as const, amount: "1000" };
+    expect(check({ [A]: "0.00" }, before, { ...before, amount: "1" })).toEqual({
+      accountId: A,
+      available: "0.00",
+      missing: "999.00",
+    });
+  });
+
+  test("memindahkan pemasukan yang sudah terpakai ke akun lain ditolak", () => {
+    const before = { accountId: A, type: "INCOME" as const, amount: "1000" };
+    expect(check({ [A]: "0.00", [B]: "0.00" }, before, { ...before, accountId: B })).toEqual({
+      accountId: A,
+      available: "0.00",
+      missing: "1000.00",
+    });
+  });
+
+  test("mengecilkan pengeluaran selalu lolos walau saldo sudah negatif", () => {
+    const before = { accountId: A, type: "EXPENSE" as const, amount: "5000" };
+    expect(check({ [A]: "-3000.00" }, before, { ...before, amount: "1000" })).toBeUndefined();
   });
 });
 

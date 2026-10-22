@@ -1,3 +1,4 @@
+import type { Prisma } from "../../generated/prisma/client";
 import { prisma } from "../config/database";
 import type {
   CreateTransactionInput,
@@ -5,10 +6,12 @@ import type {
   ListTransactionQuery,
 } from "../schemas/transaction.schema";
 import { buildMeta } from "../schemas/common.schema";
+import { transactionBalanceChanges } from "../utils/account";
 import { AppError } from "../utils/app.error";
 import { formatMoney, toDecimal } from "../utils/money";
 import { endOfLocalDay, startOfLocalDay } from "../utils/datetime";
 import {
+  assertSufficientBalance,
   getAccountBalance,
   getUsableAccount,
   resolveAccountId,
@@ -61,10 +64,7 @@ export const toResponse = (transaction: RawTransaction) => ({
   amount: formatMoney(transaction.amount as never),
 });
 
-/**
- * Respons tulis menyertakan saldo terbaru akunnya, supaya frontend bisa
- * langsung memberi peringatan kalau saldonya jadi negatif.
- */
+/** Respons tulis menyertakan saldo terbaru akunnya. */
 const withAccountBalance = async (
   userId: string,
   transaction: RawTransaction,
@@ -130,8 +130,12 @@ const resolveGoalId = async (
 };
 
 /** Memastikan transaksi ada DAN milik user yang meminta. */
-const getOwnedTransaction = async (userId: string, id: string) => {
-  const transaction = await prisma.transaction.findFirst({
+const getOwnedTransaction = async (
+  userId: string,
+  id: string,
+  db: Prisma.TransactionClient = prisma,
+) => {
+  const transaction = await db.transaction.findFirst({
     where: { id, userId },
   });
 
@@ -140,6 +144,21 @@ const getOwnedTransaction = async (userId: string, id: string) => {
   }
 
   return transaction;
+};
+
+/**
+ * Kunci baris transaksi lalu baca nilai terbarunya, supaya edit atau hapus
+ * bersamaan pada transaksi yang sama menunggu bergiliran.
+ */
+const lockOwnedTransaction = async (
+  tx: Prisma.TransactionClient,
+  userId: string,
+  id: string,
+) => {
+  await tx.$queryRaw`
+    SELECT id FROM "Transaction" WHERE id = ${id} AND "userId" = ${userId} FOR UPDATE
+  `;
+  return getOwnedTransaction(userId, id, tx);
 };
 
 /**
@@ -169,18 +188,30 @@ export const createTransaction = async (
   const goalId = await resolveGoalId(userId, input.goalId, input.type);
   const accountId = await resolveAccountId(userId, input.accountId);
 
-  const transaction = await prisma.transaction.create({
-    data: {
+  const transaction = await prisma.$transaction(async (tx) => {
+    await assertSufficientBalance(
+      tx,
       userId,
-      accountId,
-      categoryId,
-      goalId,
-      type: input.type,
-      amount: toDecimal(input.amount),
-      note: input.note,
-      occurredAt: input.occurredAt,
-    },
-    select: transactionSelect,
+      transactionBalanceChanges(null, {
+        accountId,
+        type: input.type,
+        amount: input.amount,
+      }),
+    );
+
+    return tx.transaction.create({
+      data: {
+        userId,
+        accountId,
+        categoryId,
+        goalId,
+        type: input.type,
+        amount: toDecimal(input.amount),
+        note: input.note,
+        occurredAt: input.occurredAt,
+      },
+      select: transactionSelect,
+    });
   });
 
   return withAccountBalance(userId, transaction as RawTransaction);
@@ -238,52 +269,77 @@ export const updateTransaction = async (
   id: string,
   input: UpdateTransactionInput,
 ) => {
-  const existing = await getOwnedTransaction(userId, id);
-  assertNotTransferFee(existing);
+  // Pembacaan, pengecekan saldo, dan penulisan dalam satu transaksi database,
+  // supaya saldo dihitung dari nilai transaksi yang terbaru.
+  const transaction = await prisma.$transaction(async (tx) => {
+    const existing = await lockOwnedTransaction(tx, userId, id);
+    assertNotTransferFee(existing);
 
-  const nextType = input.type ?? existing.type;
+    const nextType = input.type ?? existing.type;
 
-  // Kalau tipe berubah tanpa kategori baru, kategori lama bisa jadi tidak
-  // cocok lagi. Validasi ulang memakai kategori yang akan dipakai.
-  const categoryIdToCheck =
-    input.categoryId ?? (input.type ? (existing.categoryId ?? undefined) : undefined);
+    // Kalau tipe berubah tanpa kategori baru, kategori lama bisa jadi tidak
+    // cocok lagi. Validasi ulang memakai kategori yang akan dipakai.
+    const categoryIdToCheck =
+      input.categoryId ?? (input.type ? (existing.categoryId ?? undefined) : undefined);
 
-  const categoryId =
-    categoryIdToCheck === undefined
-      ? undefined
-      : await resolveCategoryId(userId, categoryIdToCheck, nextType);
+    const categoryId =
+      categoryIdToCheck === undefined
+        ? undefined
+        : await resolveCategoryId(userId, categoryIdToCheck, nextType);
 
-  const goalId = await resolveGoalId(userId, input.goalId, nextType);
+    const goalId = await resolveGoalId(userId, input.goalId, nextType);
 
-  // Hanya pindah ke akun yang masih aktif. Transaksi yang sudah ada di akun
-  // arsip tetap boleh diubah tanpa memindahkannya.
-  const accountId =
-    input.accountId === undefined
-      ? undefined
-      : (await getUsableAccount(userId, input.accountId)).id;
+    // Hanya pindah ke akun yang masih aktif. Transaksi yang sudah ada di akun
+    // arsip tetap boleh diubah tanpa memindahkannya.
+    const accountId =
+      input.accountId === undefined
+        ? undefined
+        : (await getUsableAccount(userId, input.accountId)).id;
 
-  const transaction = await prisma.transaction.update({
-    where: { id },
-    data: {
-      ...(input.type !== undefined && { type: input.type }),
-      ...(input.amount !== undefined && { amount: toDecimal(input.amount) }),
-      ...(input.note !== undefined && { note: input.note }),
-      ...(input.occurredAt !== undefined && { occurredAt: input.occurredAt }),
-      ...(accountId !== undefined && { accountId }),
-      ...(categoryId !== undefined && { categoryId }),
-      ...(goalId !== undefined && { goalId }),
-    },
-    select: transactionSelect,
+    // Mengecilkan pemasukan, mengubahnya jadi pengeluaran, atau memindahkannya
+    // ke akun lain sama-sama mengurangi saldo akun asalnya.
+    await assertSufficientBalance(
+      tx,
+      userId,
+      transactionBalanceChanges(existing, {
+        accountId: accountId ?? existing.accountId,
+        type: nextType,
+        amount: input.amount ?? existing.amount,
+      }),
+    );
+
+    return tx.transaction.update({
+      where: { id },
+      data: {
+        ...(input.type !== undefined && { type: input.type }),
+        ...(input.amount !== undefined && { amount: toDecimal(input.amount) }),
+        ...(input.note !== undefined && { note: input.note }),
+        ...(input.occurredAt !== undefined && { occurredAt: input.occurredAt }),
+        ...(accountId !== undefined && { accountId }),
+        ...(categoryId !== undefined && { categoryId }),
+        ...(goalId !== undefined && { goalId }),
+      },
+      select: transactionSelect,
+    });
   });
 
   return withAccountBalance(userId, transaction as RawTransaction);
 };
 
 export const deleteTransaction = async (userId: string, id: string) => {
-  const existing = await getOwnedTransaction(userId, id);
-  assertNotTransferFee(existing);
+  await prisma.$transaction(async (tx) => {
+    const existing = await lockOwnedTransaction(tx, userId, id);
+    assertNotTransferFee(existing);
 
-  await prisma.transaction.delete({ where: { id } });
+    // Menghapus pemasukan yang uangnya sudah terpakai membuat saldo negatif.
+    await assertSufficientBalance(
+      tx,
+      userId,
+      transactionBalanceChanges(existing, null),
+    );
+
+    await tx.transaction.delete({ where: { id } });
+  });
 
   return { message: "Transaksi dihapus." };
 };
