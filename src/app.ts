@@ -19,6 +19,7 @@ import articleRoutes from "./routes/article.routes";
 import articleCategoryRoutes from "./routes/article-category.routes";
 import bookmarkRoutes from "./routes/bookmark.routes";
 import adminRoutes from "./routes/admin.routes";
+import simulationRoutes from "./routes/simulation.routes";
 import { requestIdMiddleware } from "./middlewares/request-id.middleware";
 import {
   errorMiddleware,
@@ -68,6 +69,7 @@ app.use("/api/v1/income-ideas", incomeIdeaRoutes);
 app.use("/api/v1/articles", articleRoutes);
 app.use("/api/v1/article-categories", articleCategoryRoutes);
 app.use("/api/v1/bookmarks", bookmarkRoutes);
+app.use("/api/v1/simulation", simulationRoutes);
 app.use("/api/v1/admin", adminRoutes);
 app.use("/api/v1/docs", docsRoutes);
 

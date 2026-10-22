@@ -7,12 +7,20 @@ import {
 } from "../src/utils/account";
 import { listAccounts } from "../src/services/account.service";
 import { refreshProgress } from "../src/services/goal.service";
+import {
+  FINAL_STEP,
+  STARTING_CASH,
+  computePurchase,
+  describeSession,
+  marketQuote,
+} from "../src/utils/simulation";
+import type { SimInstrument } from "../generated/prisma/client";
 import type { TransactionType } from "../generated/prisma/enums";
 
 /**
  * Data demo untuk mengisi tampilan frontend: satu akun USER beserta dompetnya
  * (Tunai, Kartu Bank, Tabungan), transaksi dan transfer tiga bulan terakhir,
- * target tabungan, rasio tabungan, dan bookmark.
+ * target tabungan, rasio tabungan, bookmark, dan dua sesi game simulasi.
  *
  * Idempotent dengan cara reset: setiap kali dijalankan, seluruh data milik
  * akun demo dihapus lalu dibuat ulang dengan tanggal relatif terhadap hari
@@ -182,6 +190,70 @@ const monthTransfers = (offset: number): DemoTransfer[] => [
   },
 ];
 
+// Sesi simulasi: satu sudah selesai (layar hasil), satu masih berjalan.
+const simSession = {
+  finished: "00000000-0000-4000-8000-0000000e0001",
+  running: "00000000-0000-4000-8000-0000000e0002",
+};
+
+/**
+ * Sesi dibentuk dengan mesin yang sama seperti API: harga beli hari ini,
+ * pembelian lewat computePurchase, dan nilai serta event dari seed tetap.
+ */
+const buildSimSession = (
+  id: string,
+  instrument: SimInstrument,
+  amount: string,
+  seed: string,
+  currentStep: number,
+) => {
+  const { price } = marketQuote({
+    code: instrument.code,
+    type: instrument.type,
+    basePrice: instrument.basePrice.toString(),
+    annualDrift: instrument.annualDrift,
+    annualVolatility: instrument.annualVolatility,
+  });
+
+  const purchase = computePurchase({
+    type: instrument.type,
+    price,
+    amount,
+    minInvestment: instrument.minInvestment.toString(),
+  });
+  if (!purchase.ok) throw new Error(purchase.message);
+
+  const state = describeSession({
+    seed,
+    type: instrument.type,
+    buyPrice: price,
+    annualDrift: instrument.annualDrift,
+    annualVolatility: instrument.annualVolatility,
+    units: purchase.units,
+    investedAmount: purchase.investedAmount,
+    currentStep,
+  });
+  const finished = currentStep === FINAL_STEP;
+
+  return {
+    id,
+    instrumentId: instrument.id,
+    seed,
+    annualDrift: instrument.annualDrift,
+    annualVolatility: instrument.annualVolatility,
+    startingCash: STARTING_CASH,
+    investedAmount: purchase.investedAmount,
+    cashLeft: purchase.cashLeft,
+    units: purchase.units,
+    buyPrice: price,
+    currentStep,
+    status: finished ? ("FINISHED" as const) : ("RUNNING" as const),
+    finalValue: finished ? state.current.value : null,
+    finishedAt: finished ? new Date() : null,
+    events: { create: state.events },
+  };
+};
+
 const seedDemo = async () => {
   if (env.NODE_ENV === "production") {
     throw new Error("Seed demo tidak boleh dijalankan dengan NODE_ENV=production.");
@@ -205,6 +277,19 @@ const seedDemo = async () => {
   const transfers = [2, 1, 0]
     .flatMap(monthTransfers)
     .filter((t) => t.occurredAt <= now);
+
+  const instruments = await prisma.simInstrument.findMany({
+    where: { code: { in: ["NUSA", "RDPU"] } },
+  });
+  const nusa = instruments.find((i) => i.code === "NUSA");
+  const rdpu = instruments.find((i) => i.code === "RDPU");
+  if (!nusa || !rdpu) {
+    throw new Error("Instrumen simulasi belum ada. Jalankan `bun run db:seed` dulu.");
+  }
+  const simSessions = [
+    buildSimSession(simSession.finished, nusa, "500000", "demo-nusa", FINAL_STEP),
+    buildSimSession(simSession.running, rdpu, "1000000", "demo-rdpu", 2),
+  ];
 
   const publishedArticles = await prisma.article.findMany({
     where: { status: "PUBLISHED" },
@@ -233,6 +318,8 @@ const seedDemo = async () => {
     await tx.savingGoal.deleteMany({ where: { userId: user.id } });
     await tx.savingRatio.deleteMany({ where: { userId: user.id } });
     await tx.bookmark.deleteMany({ where: { userId: user.id } });
+    // Event ikut terhapus lewat cascade.
+    await tx.simulationSession.deleteMany({ where: { userId: user.id } });
 
     await tx.account.createMany({
       data: DEFAULT_ACCOUNTS.map((a) => ({
@@ -312,6 +399,12 @@ const seedDemo = async () => {
       data: publishedArticles.map((a) => ({ userId: user.id, articleId: a.id })),
     });
 
+    for (const session of simSessions) {
+      await tx.simulationSession.create({
+        data: { ...session, userId: user.id },
+      });
+    }
+
     return user;
   });
 
@@ -334,6 +427,12 @@ const seedDemo = async () => {
       ? `Bookmark: ${publishedArticles.length}`
       : "Bookmark: dilewati, belum ada artikel PUBLISHED.",
   );
+  for (const session of simSessions) {
+    console.log(
+      `Sesi simulasi ${session.id}: ${session.status}, langkah ${session.currentStep}, investasi ${session.investedAmount}` +
+        (session.finalValue ? `, nilai akhir ${session.finalValue}` : ""),
+    );
+  }
   console.log(`Akun demo: ${DEMO_EMAIL} / ${DEMO_PASSWORD}`);
   console.log("Seed demo selesai.");
 };
