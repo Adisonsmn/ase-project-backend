@@ -3,6 +3,7 @@ import { TRANSFER_FEE_CATEGORY_ID } from "../src/utils/account";
 import type { TransactionType } from "../generated/prisma/enums";
 import { incomeIdeas } from "./seeds/income-ideas";
 import { articleCategories } from "./seeds/article-categories";
+import { simInstruments } from "./seeds/sim-instruments";
 
 /**
  * Kategori bawaan sistem (userId = null), dipakai bersama semua user.
@@ -97,6 +98,35 @@ const seed = async () => {
 
   const totalArticleCategories = await prisma.articleCategory.count();
   console.log(`Kategori artikel: ${totalArticleCategories}`);
+
+  for (const instrument of simInstruments) {
+    const data = {
+      code: instrument.code,
+      type: instrument.type,
+      name: instrument.name,
+      fundType: instrument.fundType ?? null,
+      description: instrument.description,
+      note: instrument.note ?? null,
+      riskLevel: instrument.riskLevel,
+      returnPotential: instrument.returnPotential,
+      horizonText: instrument.horizonText ?? null,
+      minInvestment: instrument.minInvestment,
+      basePrice: instrument.basePrice,
+      annualDrift: instrument.annualDrift,
+      annualVolatility: instrument.annualVolatility,
+      sortOrder: instrument.sortOrder,
+      isActive: true,
+    };
+
+    await prisma.simInstrument.upsert({
+      where: { id: instrument.id },
+      create: { id: instrument.id, ...data },
+      update: data,
+    });
+  }
+
+  const totalInstruments = await prisma.simInstrument.count();
+  console.log(`Instrumen simulasi: ${totalInstruments}`);
   console.log("Seed selesai.");
 };
 
