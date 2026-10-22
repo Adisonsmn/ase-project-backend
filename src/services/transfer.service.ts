@@ -7,15 +7,13 @@ import type {
 import { AppError } from "../utils/app.error";
 import {
   TRANSFER_FEE_CATEGORY_ID,
-  findInsufficientAccount,
   transferBalanceChanges,
-  type TransferEffect,
 } from "../utils/account";
 import { formatMoney, toDecimal } from "../utils/money";
 import {
+  assertSufficientBalance,
   getAccountBalances,
   getUsableAccount,
-  lockAccounts,
 } from "./account.service";
 
 const accountSummary = {
@@ -94,42 +92,6 @@ const assertFeeCategoryExists = async () => {
   }
 };
 
-/**
- * Tolak transfer yang membuat saldo akun mana pun di bawah nol. Dipanggil di
- * dalam transaksi database yang sama dengan penulisannya: akun yang saldonya
- * berkurang dikunci dulu, jadi request bersamaan menunggu lalu membaca saldo
- * terbaru.
- */
-const assertSufficientBalance = async (
-  tx: Prisma.TransactionClient,
-  userId: string,
-  before: TransferEffect | null,
-  after: TransferEffect,
-) => {
-  const changes = transferBalanceChanges(before, after);
-  const decreased = [...changes]
-    .filter(([, change]) => change.lessThan(0))
-    .map(([accountId]) => accountId);
-
-  if (decreased.length === 0) return;
-
-  await lockAccounts(tx, userId, decreased);
-  const balances = await getAccountBalances(userId, decreased, tx);
-
-  const shortfall = findInsufficientAccount(balances, changes);
-  if (!shortfall) return;
-
-  const account = await tx.account.findUniqueOrThrow({
-    where: { id: shortfall.accountId },
-    select: { name: true },
-  });
-
-  throw new AppError(
-    400,
-    `Saldo akun "${account.name}" tidak cukup: tersedia ${shortfall.available}, kurang ${shortfall.missing}.`,
-  );
-};
-
 /** Data transaksi biaya admin: pengeluaran dari akun asal, di waktu yang sama. */
 const feeTransactionData = (
   userId: string,
@@ -159,12 +121,16 @@ export const createTransfer = async (
   if (fee.greaterThan(0)) await assertFeeCategoryExists();
 
   const transfer = await prisma.$transaction(async (tx) => {
-    await assertSufficientBalance(tx, userId, null, {
-      fromAccountId: input.fromAccountId,
-      toAccountId: input.toAccountId,
-      amount: input.amount,
-      fee,
-    });
+    await assertSufficientBalance(
+      tx,
+      userId,
+      transferBalanceChanges(null, {
+        fromAccountId: input.fromAccountId,
+        toAccountId: input.toAccountId,
+        amount: input.amount,
+        fee,
+      }),
+    );
 
     // Nested create: transfer dan biaya adminnya tersimpan bersama.
     return tx.transfer.create({
@@ -217,6 +183,30 @@ const getOwnedTransfer = async (
   return transfer;
 };
 
+/**
+ * Kunci baris transfer lalu baca nilai terbarunya, supaya edit atau hapus
+ * bersamaan pada transfer yang sama menunggu bergiliran.
+ */
+const lockOwnedTransfer = async (
+  tx: Prisma.TransactionClient,
+  userId: string,
+  id: string,
+) => {
+  await tx.$queryRaw`
+    SELECT id FROM "Transfer" WHERE id = ${id} AND "userId" = ${userId} FOR UPDATE
+  `;
+  return getOwnedTransfer(userId, id, tx);
+};
+
+const toTransferEffect = (
+  transfer: Awaited<ReturnType<typeof getOwnedTransfer>>,
+) => ({
+  fromAccountId: transfer.fromAccountId,
+  toAccountId: transfer.toAccountId,
+  amount: transfer.amount,
+  fee: transfer.feeTransaction?.amount ?? 0,
+});
+
 export const updateTransfer = async (
   userId: string,
   id: string,
@@ -225,11 +215,7 @@ export const updateTransfer = async (
   // Pembacaan, pengecekan saldo, dan penulisan dalam satu transaksi database,
   // supaya saldo dihitung dari nilai transfer yang terbaru.
   const transfer = await prisma.$transaction(async (tx) => {
-    // Edit bersamaan pada transfer yang sama menunggu di sini.
-    await tx.$queryRaw`
-      SELECT id FROM "Transfer" WHERE id = ${id} AND "userId" = ${userId} FOR UPDATE
-    `;
-    const existing = await getOwnedTransfer(userId, id, tx);
+    const existing = await lockOwnedTransfer(tx, userId, id);
 
     const fromAccountId = input.fromAccountId ?? existing.fromAccountId;
     const toAccountId = input.toAccountId ?? existing.toAccountId;
@@ -258,18 +244,12 @@ export const updateTransfer = async (
     await assertSufficientBalance(
       tx,
       userId,
-      {
-        fromAccountId: existing.fromAccountId,
-        toAccountId: existing.toAccountId,
-        amount: existing.amount,
-        fee: existing.feeTransaction?.amount ?? 0,
-      },
-      {
+      transferBalanceChanges(toTransferEffect(existing), {
         fromAccountId,
         toAccountId,
         amount: input.amount ?? existing.amount,
         fee,
-      },
+      }),
     );
 
     await tx.transfer.update({
@@ -310,10 +290,20 @@ export const updateTransfer = async (
 };
 
 export const deleteTransfer = async (userId: string, id: string) => {
-  await getOwnedTransfer(userId, id);
+  await prisma.$transaction(async (tx) => {
+    const existing = await lockOwnedTransfer(tx, userId, id);
 
-  // Transaksi biaya admin ikut terhapus lewat onDelete: Cascade.
-  await prisma.transfer.delete({ where: { id } });
+    // Akun tujuan kehilangan amount. Kalau uangnya sudah terpakai, menghapus
+    // transfer ini membuat saldonya negatif.
+    await assertSufficientBalance(
+      tx,
+      userId,
+      transferBalanceChanges(toTransferEffect(existing), null),
+    );
+
+    // Transaksi biaya admin ikut terhapus lewat onDelete: Cascade.
+    await tx.transfer.delete({ where: { id } });
+  });
 
   return { message: "Transfer dihapus." };
 };

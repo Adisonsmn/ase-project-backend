@@ -6,8 +6,13 @@ import type {
   UpdateAccountInput,
 } from "../schemas/account.schema";
 import { AppError } from "../utils/app.error";
-import { MAX_ACCOUNTS_PER_USER, computeBalance } from "../utils/account";
-import { formatMoney } from "../utils/money";
+import {
+  MAX_ACCOUNTS_PER_USER,
+  computeBalance,
+  findInsufficientAccount,
+  type BalanceChanges,
+} from "../utils/account";
+import { formatMoney, toDecimal } from "../utils/money";
 
 const accountSelect = {
   id: true,
@@ -139,6 +144,40 @@ export const lockAccounts = async (
     ORDER BY id
     FOR NO KEY UPDATE
   `;
+};
+
+/**
+ * Tolak penulisan yang membuat saldo akun mana pun di bawah nol. Dipanggil di
+ * dalam transaksi database yang sama dengan penulisannya: akun yang saldonya
+ * berkurang dikunci dulu, jadi request bersamaan menunggu lalu membaca saldo
+ * terbaru.
+ */
+export const assertSufficientBalance = async (
+  tx: Prisma.TransactionClient,
+  userId: string,
+  changes: BalanceChanges,
+) => {
+  const decreased = [...changes]
+    .filter(([, change]) => change.lessThan(0))
+    .map(([accountId]) => accountId);
+
+  if (decreased.length === 0) return;
+
+  await lockAccounts(tx, userId, decreased);
+  const balances = await getAccountBalances(userId, decreased, tx);
+
+  const shortfall = findInsufficientAccount(balances, changes);
+  if (!shortfall) return;
+
+  const account = await tx.account.findUniqueOrThrow({
+    where: { id: shortfall.accountId },
+    select: { name: true },
+  });
+
+  throw new AppError(
+    400,
+    `Saldo akun "${account.name}" tidak cukup: tersedia ${shortfall.available}, kurang ${shortfall.missing}.`,
+  );
 };
 
 export const getAccountBalance = async (userId: string, accountId: string) => {
@@ -294,6 +333,27 @@ export const updateAccount = async (
 
   try {
     const updated = await prisma.$transaction(async (tx) => {
+      // Menurunkan saldo awal sama dengan mengurangi saldo. Saldo awal dibaca
+      // ulang setelah akun dikunci, supaya selisihnya dari nilai terbaru.
+      if (input.openingBalance !== undefined) {
+        await lockAccounts(tx, userId, [accountId]);
+        const current = await tx.account.findUniqueOrThrow({
+          where: { id: accountId },
+          select: { openingBalance: true },
+        });
+
+        await assertSufficientBalance(
+          tx,
+          userId,
+          new Map([
+            [
+              accountId,
+              toDecimal(input.openingBalance).minus(current.openingBalance),
+            ],
+          ]),
+        );
+      }
+
       // Default dipindah dalam satu transaksi, supaya tidak pernah ada
       // momen dengan nol atau dua akun default.
       if (input.isDefault) {
