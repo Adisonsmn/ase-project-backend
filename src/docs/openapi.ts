@@ -464,7 +464,7 @@ const routes: RouteSpec[] = [
     path: "/api/v1/transfers",
     tag: "Transfer",
     summary:
-      "Pindahkan uang antar akun sendiri. Biaya admin (fee) dicatat sebagai pengeluaran kategori Biaya Admin dari akun asal",
+      "Pindahkan uang antar akun sendiri. Biaya admin (fee) dicatat sebagai pengeluaran kategori Biaya Admin dari akun asal. Ditolak 400 kalau saldo akun asal tidak cukup untuk amount + fee",
     auth: true,
     schema: createTransferSchema,
     successStatus: 201,
@@ -474,7 +474,8 @@ const routes: RouteSpec[] = [
     method: "patch",
     path: "/api/v1/transfers/{id}",
     tag: "Transfer",
-    summary: "Ubah transfer. fee: 0 menghapus biaya admin",
+    summary:
+      "Ubah transfer. fee: 0 menghapus biaya admin. Ditolak 400 kalau perubahan membuat saldo akun mana pun di bawah nol",
     auth: true,
     schema: updateTransferSchema,
     successDescription: "Transfer beserta saldo terbaru akun asal dan tujuan",
