@@ -58,6 +58,23 @@ enum AccountType {
   OTHER
 }
 
+enum SimInstrumentType {
+  STOCK
+  MUTUAL_FUND
+}
+
+/// Dipakai untuk tingkat risiko sekaligus potensi keuntungan instrumen.
+enum SimLevel {
+  LOW
+  MEDIUM
+  HIGH
+}
+
+enum SimStatus {
+  RUNNING
+  FINISHED
+}
+
 model User {
   id           String    @id @default(uuid())
   email        String    @unique
@@ -79,6 +96,7 @@ model User {
   goals        SavingGoal[]
   articles     Article[]
   bookmarks    Bookmark[]
+  simulations  SimulationSession[]
 }
 
 model Session {
@@ -337,4 +355,91 @@ model Bookmark {
 
   @@unique([userId, articleId])
   @@index([userId, createdAt])
+}
+
+/// Instrumen game simulasi investasi (F-10). Datanya sintetis, bukan emiten
+/// atau produk sungguhan, dan dikelola lewat seed dengan id tetap.
+model SimInstrument {
+  id               String            @id @default(uuid())
+  /// Kode pendek yang dipakai di URL, mis. NUSA atau RDPU.
+  code             String            @unique
+  type             SimInstrumentType
+  name             String
+  /// Jenis reksa dana untuk layar hasil, mis. "Pasar Uang". Kosong untuk saham.
+  fundType         String?
+  description      String
+  /// Catatan tambahan, mis. bahwa dana dikelola Manajer Investasi.
+  note             String?
+  riskLevel        SimLevel
+  returnPotential  SimLevel
+  /// Saran jangka waktu untuk ditampilkan, mis. "1–2 tahun".
+  horizonText      String?
+  minInvestment    Decimal           @db.Decimal(14, 2)
+  /// Harga per lembar atau NAV per unit acuan pasar sintetis.
+  basePrice        Decimal           @db.Decimal(14, 2)
+  /// Parameter mesin simulasi per tahun (bukan nominal uang).
+  annualDrift      Float
+  annualVolatility Float
+  sortOrder        Int               @default(0)
+  isActive         Boolean           @default(true)
+  createdAt        DateTime          @default(now())
+  updatedAt        DateTime          @updatedAt
+
+  sessions SimulationSession[]
+
+  @@index([type, isActive])
+}
+
+/// Satu kali bermain: membeli satu instrumen dengan modal virtual, lalu maju
+/// per checkpoint sampai 1 tahun. Seluruh perjalanan harga ditentukan oleh
+/// `seed` beserta parameter yang disalin saat sesi dibuat, sehingga hasilnya
+/// bisa dihitung ulang kapan pun dan tidak berubah walau instrumennya diubah.
+model SimulationSession {
+  id               String    @id @default(uuid())
+  userId           String
+  instrumentId     String
+  seed             String
+  annualDrift      Float
+  annualVolatility Float
+  startingCash     Decimal   @db.Decimal(14, 2)
+  investedAmount   Decimal   @db.Decimal(14, 2)
+  cashLeft         Decimal   @db.Decimal(14, 2)
+  units            Decimal   @db.Decimal(18, 6)
+  buyPrice         Decimal   @db.Decimal(14, 2)
+  /// 0 = baru membeli, 1..4 = checkpoint 1 Hari, 1 Bulan, 6 Bulan, 1 Tahun.
+  currentStep      Int       @default(0)
+  status           SimStatus @default(RUNNING)
+  finalValue       Decimal?  @db.Decimal(14, 2)
+  finishedAt       DateTime?
+  createdAt        DateTime  @default(now())
+  updatedAt        DateTime  @updatedAt
+
+  user       User          @relation(fields: [userId], references: [id], onDelete: Cascade)
+  // Instrumen yang sudah pernah dimainkan dinonaktifkan, bukan dihapus.
+  instrument SimInstrument @relation(fields: [instrumentId], references: [id], onDelete: Restrict)
+  events     SimEvent[]
+
+  @@index([userId, status])
+  @@index([userId, createdAt])
+  @@index([instrumentId])
+}
+
+/// Event edukasi yang terjadi di sebuah sesi. Teksnya disalin dari template
+/// supaya riwayat sesi lama tidak ikut berubah kalau templatenya diperbarui.
+model SimEvent {
+  id          String   @id @default(uuid())
+  sessionId   String
+  /// Checkpoint yang memunculkan event ini (1..4).
+  step        Int
+  /// Hari ke berapa sejak membeli event ini terjadi.
+  day         Int
+  headline    String
+  explanation String
+  /// Perubahan nilai akibat event dalam persen, mis. -8 atau 0.3.
+  impactPct   Float
+  createdAt   DateTime @default(now())
+
+  session SimulationSession @relation(fields: [sessionId], references: [id], onDelete: Cascade)
+
+  @@index([sessionId, day])
 }
