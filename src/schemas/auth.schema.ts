@@ -17,9 +17,25 @@ const username = z
     "Username hanya boleh berisi huruf, angka, dan underscore",
   );
 
+/**
+ * Email disimpan dan dicari dalam huruf kecil. Tanpa ini, akun yang didaftarkan
+ * sebagai "Budi@gmail.com" tidak bisa login dengan "budi@gmail.com".
+ */
+const email = z
+  .string()
+  .trim()
+  .toLowerCase()
+  .pipe(z.email("Format email tidak valid"));
+
+/** Pendaftaran baru hanya untuk alamat Gmail; login tetap terbuka untuk akun lama. */
+const gmail = email.refine(
+  (value) => value.endsWith("@gmail.com"),
+  "Gunakan alamat Gmail (contoh: nama@gmail.com).",
+);
+
 export const registerSchema = z.object({
   body: z.object({
-    email: z.email("Format email tidak valid"),
+    email: gmail,
     username,
     password: z
       .string()
@@ -31,7 +47,7 @@ export const registerSchema = z.object({
 
 export const loginSchema = z.object({
   body: z.object({
-    email: z.email("Format email tidak valid"),
+    email,
     password: z.string().min(1, "Password tidak boleh kosong"),
   }),
 });

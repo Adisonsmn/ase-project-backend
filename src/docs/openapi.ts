@@ -167,7 +167,7 @@ const routes: RouteSpec[] = [
     method: "post",
     path: "/api/v1/auth/register",
     tag: "Auth",
-    summary: "Daftar akun baru",
+    summary: "Daftar akun baru (email wajib @gmail.com)",
     schema: registerSchema,
     successStatus: 201,
     successDescription: "Akun dibuat, access & refresh token dikembalikan",

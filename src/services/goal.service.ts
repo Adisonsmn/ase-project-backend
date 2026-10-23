@@ -58,8 +58,10 @@ const toResponse = (goal: GoalRow) => ({
  * kolom yang di-update manual akan langsung melenceng tanpa ketahuan.
  */
 const sumLinkedTransactions = async (userId: string, goalId: string) => {
+  // Hanya pengeluaran (uang yang disisihkan) yang menambah progress. Pemasukan
+  // yang masih bertaut dari data lama tidak boleh ikut terhitung.
   const result = await prisma.transaction.aggregate({
-    where: { userId, goalId },
+    where: { userId, goalId, type: "EXPENSE" },
     _sum: { amount: true },
   });
 
@@ -138,6 +140,14 @@ export const createGoal = async (userId: string, input: CreateGoalInput) => {
 };
 
 export const listGoals = async (userId: string, status?: GoalStatus) => {
+  // Progress disegarkan dulu untuk semua target, karena status bisa berubah
+  // (ACTIVE <-> ACHIEVED) dan filter status di bawah harus memakai nilai baru.
+  const owned = await prisma.savingGoal.findMany({
+    where: { userId },
+    select: { id: true },
+  });
+  await Promise.all(owned.map((goal) => refreshProgress(userId, goal.id)));
+
   const goals = await prisma.savingGoal.findMany({
     where: { userId, ...(status && { status }) },
     select: goalSelect,

@@ -12,7 +12,7 @@ import {
   findInsufficientAccount,
   type BalanceChanges,
 } from "../utils/account";
-import { formatMoney, toDecimal } from "../utils/money";
+import { formatMoney, formatRupiah, toDecimal } from "../utils/money";
 
 const accountSelect = {
   id: true,
@@ -176,7 +176,7 @@ export const assertSufficientBalance = async (
 
   throw new AppError(
     400,
-    `Saldo akun "${account.name}" tidak cukup: tersedia ${shortfall.available}, kurang ${shortfall.missing}.`,
+    `Saldo akun "${account.name}" tidak cukup (tersedia ${formatRupiah(shortfall.available)}, kurang ${formatRupiah(shortfall.missing)}). Catat pemasukan ke akun ini dulu, atau pilih akun lain.`,
   );
 };
 

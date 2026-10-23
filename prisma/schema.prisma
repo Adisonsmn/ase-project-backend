@@ -105,6 +105,9 @@ model Session {
   tokenHash String
   expiresAt DateTime
   revokedAt DateTime?
+  /// Sesi pengganti saat dicabut karena rotasi refresh token. Kosong kalau
+  /// dicabut lewat logout atau karena reuse terdeteksi.
+  replacedById String?
   createdAt DateTime  @default(now())
 
   user User @relation(fields: [userId], references: [id], onDelete: Cascade)

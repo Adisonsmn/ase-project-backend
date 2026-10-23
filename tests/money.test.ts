@@ -1,10 +1,25 @@
 import { describe, expect, test } from "bun:test";
 import {
   formatMoney,
+  formatRupiah,
   percentageOf,
   subtractMoney,
   sumMoney,
 } from "../src/utils/money";
+
+describe("formatRupiah", () => {
+  test("tanpa desimal untuk nominal bulat", () => {
+    expect(formatRupiah("15000.00")).toBe("Rp 15.000");
+  });
+
+  test("desimal ditampilkan kalau ada", () => {
+    expect(formatRupiah("1250.5")).toBe("Rp 1.250,5");
+  });
+
+  test("nol", () => {
+    expect(formatRupiah("0.00")).toBe("Rp 0");
+  });
+});
 
 describe("formatMoney", () => {
   test("selalu dua desimal", () => {

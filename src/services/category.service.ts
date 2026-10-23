@@ -5,6 +5,7 @@ import type {
   UpdateCategoryInput,
 } from "../schemas/category.schema";
 import { AppError } from "../utils/app.error";
+import { isUniqueViolation } from "../utils/prisma-error";
 
 const categorySelect = {
   id: true,
@@ -74,15 +75,26 @@ export const createCategory = async (
     );
   }
 
-  return prisma.category.create({
-    data: {
-      userId,
-      name: input.name,
-      icon: input.icon,
-      type: input.type,
-    },
-    select: categorySelect,
-  });
+  try {
+    return await prisma.category.create({
+      data: {
+        userId,
+        name: input.name,
+        icon: input.icon,
+        type: input.type,
+      },
+      select: categorySelect,
+    });
+  } catch (error) {
+    // Dua request bersamaan dengan nama sama: yang kalah kena constraint unik.
+    if (isUniqueViolation(error)) {
+      throw new AppError(
+        409,
+        "Anda sudah punya kategori dengan nama dan tipe yang sama.",
+      );
+    }
+    throw error;
+  }
 };
 
 /** Memastikan kategori milik user dan bukan kategori sistem. */

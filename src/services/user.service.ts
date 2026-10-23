@@ -1,6 +1,7 @@
 import { prisma } from "../config/database";
 import type { UpdateMeInput } from "../schemas/user.schema";
 import { AppError } from "../utils/app.error";
+import { isUniqueViolation } from "../utils/prisma-error";
 
 const userSelectFields = {
   id: true,
@@ -51,15 +52,21 @@ export const updateProfile = async (userId: string, input: UpdateMeInput) => {
 
   const dateOfBirth = input.dateOfBirth ? new Date(input.dateOfBirth) : undefined;
 
-  const updatedUser = await prisma.user.update({
-    where: { id: userId },
-    data: {
-      ...(input.username !== undefined && { username: input.username }),
-      ...(input.avatarUrl !== undefined && { avatarUrl: input.avatarUrl }),
-      ...(dateOfBirth !== undefined && { dateOfBirth }),
-    },
-    select: userSelectFields,
-  });
-
-  return updatedUser;
+  try {
+    return await prisma.user.update({
+      where: { id: userId },
+      data: {
+        ...(input.username !== undefined && { username: input.username }),
+        ...(input.avatarUrl !== undefined && { avatarUrl: input.avatarUrl }),
+        ...(dateOfBirth !== undefined && { dateOfBirth }),
+      },
+      select: userSelectFields,
+    });
+  } catch (error) {
+    // User lain mengambil username yang sama di antara pengecekan dan update.
+    if (isUniqueViolation(error)) {
+      throw new AppError(409, "Username already taken");
+    }
+    throw error;
+  }
 };

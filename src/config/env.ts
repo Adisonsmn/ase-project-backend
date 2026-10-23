@@ -40,6 +40,14 @@ const envSchema = z
     RATE_LIMIT_GLOBAL_MAX: z.coerce.number().int().positive().default(100),
     RATE_LIMIT_AUTH_MAX: z.coerce.number().int().positive().default(10),
     RATE_LIMIT_REGISTER_MAX: z.coerce.number().int().positive().default(5),
+
+    // Secret bersama dengan BFF Next. Request dari BFF membawa IP klien asli di
+    // header x-client-ip; tanpa secret yang cocok, header itu diabaikan dan
+    // rate limit memakai IP koneksi (IP server Next untuk semua user).
+    BFF_SHARED_SECRET: z
+      .string()
+      .min(32, "BFF_SHARED_SECRET minimal 32 karakter.")
+      .optional(),
   })
   .superRefine((value, ctx) => {
     if (value.NODE_ENV === "production" && value.CORS_ORIGIN.length === 0) {

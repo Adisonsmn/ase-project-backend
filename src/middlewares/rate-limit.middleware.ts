@@ -1,3 +1,5 @@
+import { timingSafeEqual } from "node:crypto";
+import { isIP } from "node:net";
 import type { Request } from "express";
 import rateLimit, { ipKeyGenerator } from "express-rate-limit";
 import { env } from "../config/env";
@@ -7,6 +9,46 @@ const message = (text: string) => ({ message: text });
 // Unit/integration test tidak boleh tertahan kuota yang dipakai bersama.
 const skip = () => env.NODE_ENV === "test";
 
+const sameSecret = (given: string, expected: string) => {
+  const a = Buffer.from(given);
+  const b = Buffer.from(expected);
+  return a.length === b.length && timingSafeEqual(a, b);
+};
+
+/**
+ * IP yang dipakai sebagai kunci rate limit.
+ *
+ * Semua request frontend lewat BFF Next, jadi IP koneksinya selalu IP server
+ * Next dan seluruh user akan berbagi satu kuota. BFF mengirim IP klien asli di
+ * `x-client-ip`, tetapi header itu hanya dipercaya kalau `x-bff-key` cocok
+ * dengan secret bersama; tanpa itu siapa pun bisa memalsukan IP-nya.
+ */
+export const resolveClientIp = (
+  headers: { bffKey?: string; clientIp?: string },
+  fallbackIp: string,
+  secret: string | undefined,
+) => {
+  if (
+    secret &&
+    headers.bffKey &&
+    headers.clientIp &&
+    isIP(headers.clientIp) !== 0 &&
+    sameSecret(headers.bffKey, secret)
+  ) {
+    return headers.clientIp;
+  }
+  return fallbackIp;
+};
+
+const clientIpKey = (req: Request) =>
+  ipKeyGenerator(
+    resolveClientIp(
+      { bffKey: req.get("x-bff-key"), clientIp: req.get("x-client-ip") },
+      req.ip ?? "",
+      env.BFF_SHARED_SECRET,
+    ),
+  );
+
 /** Batas umum untuk seluruh endpoint (default 100 request / 15 menit / IP). */
 export const globalLimiter = rateLimit({
   windowMs: 15 * 60 * 1000,
@@ -14,6 +56,7 @@ export const globalLimiter = rateLimit({
   standardHeaders: true,
   legacyHeaders: false,
   skip,
+  keyGenerator: clientIpKey,
   message: message(
     "Terlalu banyak permintaan dari IP ini, silakan coba lagi setelah 15 menit.",
   ),
@@ -29,7 +72,7 @@ const loginKey = (req: Request) => {
     typeof req.body?.email === "string"
       ? req.body.email.trim().toLowerCase()
       : "";
-  return `${ipKeyGenerator(req.ip ?? "")}:${email}`;
+  return `${clientIpKey(req)}:${email}`;
 };
 
 /**
@@ -60,6 +103,7 @@ export const refreshLimiter = rateLimit({
   legacyHeaders: false,
   skip,
   skipSuccessfulRequests: true,
+  keyGenerator: clientIpKey,
   message: message(
     "Terlalu banyak refresh token gagal. Silakan login ulang atau coba lagi setelah 15 menit.",
   ),
@@ -72,6 +116,7 @@ export const registerLimiter = rateLimit({
   standardHeaders: true,
   legacyHeaders: false,
   skip,
+  keyGenerator: clientIpKey,
   message: message(
     "Terlalu banyak pendaftaran dari IP ini. Silakan coba lagi dalam satu jam.",
   ),

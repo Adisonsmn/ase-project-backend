@@ -17,6 +17,15 @@ export const formatMoney = (value: Money | string | number | null): string => {
   return new Prisma.Decimal(value).toFixed(2);
 };
 
+const rupiahFormatter = new Intl.NumberFormat("id-ID", {
+  minimumFractionDigits: 0,
+  maximumFractionDigits: 2,
+});
+
+/** Nominal untuk pesan ke user, mis. "Rp 15.000" atau "Rp 1.250,50". */
+export const formatRupiah = (value: Money | string | number): string =>
+  `Rp ${rupiahFormatter.format(new Prisma.Decimal(value).toNumber())}`;
+
 export const sumMoney = (values: (Money | string | number)[]): string =>
   values
     .reduce<Prisma.Decimal>(

@@ -6,7 +6,7 @@ const wrap = (body: unknown) => ({ body, params: {}, query: {} });
 
 describe("registerSchema", () => {
   const valid = {
-    email: "rani@example.com",
+    email: "rani@gmail.com",
     username: "rani_15",
     password: "rahasia123",
     dateOfBirth: "2011-05-04",
@@ -27,6 +27,24 @@ describe("registerSchema", () => {
   test("menolak email tidak valid", () => {
     const result = registerSchema.safeParse(wrap({ ...valid, email: "rani" }));
     expect(result.success).toBe(false);
+  });
+
+  test.each([
+    ["domain lain", "rani@yahoo.com"],
+    ["subdomain palsu", "rani@gmail.com.evil.com"],
+    ["googlemail", "rani@googlemail.com"],
+  ])("menolak email selain Gmail: %s", (_label, email) => {
+    const result = registerSchema.safeParse(wrap({ ...valid, email }));
+    expect(result.success).toBe(false);
+  });
+
+  test("menormalkan email ke huruf kecil tanpa spasi", () => {
+    const result = registerSchema.safeParse(
+      wrap({ ...valid, email: "  Rani@Gmail.COM " }),
+    );
+
+    expect(result.success).toBe(true);
+    expect(result.data?.body.email).toBe("rani@gmail.com");
   });
 
   test("menolak password kurang dari 8 karakter", () => {
@@ -67,6 +85,20 @@ describe("loginSchema", () => {
       wrap({ email: "rani@example.com", password: "abc123" }),
     );
     expect(result.success).toBe(true);
+  });
+
+  test("tidak membatasi domain email, supaya akun lama tetap bisa masuk", () => {
+    const result = loginSchema.safeParse(
+      wrap({ email: "demo@example.com", password: "rahasia123" }),
+    );
+    expect(result.success).toBe(true);
+  });
+
+  test("menormalkan email ke huruf kecil", () => {
+    const result = loginSchema.safeParse(
+      wrap({ email: "Rani@Gmail.com", password: "rahasia123" }),
+    );
+    expect(result.data?.body.email).toBe("rani@gmail.com");
   });
 });
 

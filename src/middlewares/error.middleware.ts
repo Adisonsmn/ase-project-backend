@@ -55,6 +55,19 @@ export const errorMiddleware: ErrorRequestHandler = (
     });
   }
 
+  // Error dari body parser (JSON rusak, body terlalu besar) membawa status 4xx
+  // sendiri. Itu kesalahan request, bukan server, jadi tidak dicatat sebagai 500.
+  const status = (error as { status?: unknown } | null)?.status;
+  if (typeof status === "number" && status >= 400 && status < 500) {
+    return res.status(status).json({
+      message:
+        status === 413
+          ? "Data yang dikirim terlalu besar."
+          : "Format data request tidak valid.",
+      requestId: req.requestId,
+    });
+  }
+
   logger.error("Unhandled error", error, {
     requestId: req.requestId,
     method: req.method,

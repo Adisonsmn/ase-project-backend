@@ -287,7 +287,13 @@ export const updateTransaction = async (
         ? undefined
         : await resolveCategoryId(userId, categoryIdToCheck, nextType);
 
-    const goalId = await resolveGoalId(userId, input.goalId, nextType);
+    let goalId = await resolveGoalId(userId, input.goalId, nextType);
+
+    // Pemasukan tidak boleh bertaut ke target. Kalau pengeluaran tabungan
+    // diubah jadi pemasukan, tautannya dilepas supaya progress tidak ikut naik.
+    if (nextType === "INCOME" && goalId === undefined && existing.goalId) {
+      goalId = null;
+    }
 
     // Hanya pindah ke akun yang masih aktif. Transaksi yang sudah ada di akun
     // arsip tetap boleh diubah tanpa memindahkannya.

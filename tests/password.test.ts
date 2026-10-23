@@ -1,5 +1,10 @@
 import { describe, expect, test } from "bun:test";
-import { hashPassword, verifyPassword } from "../src/utils/password";
+import argon2 from "argon2";
+import {
+  hashPassword,
+  passwordNeedsRehash,
+  verifyPassword,
+} from "../src/utils/password";
 
 describe("password", () => {
   test("hash menghasilkan string argon2id, bukan password asli", async () => {
@@ -26,5 +31,16 @@ describe("password", () => {
   test("verify menolak password yang salah", async () => {
     const hash = await hashPassword("rahasia123");
     expect(await verifyPassword("rahasia124", hash)).toBe(false);
+  });
+});
+
+describe("passwordNeedsRehash", () => {
+  test("hash baru tidak perlu di-rehash", async () => {
+    expect(passwordNeedsRehash(await hashPassword("rahasia123"))).toBe(false);
+  });
+
+  test("hash dengan parameter default lama perlu di-rehash", async () => {
+    const legacy = await argon2.hash("rahasia123", { type: argon2.argon2id });
+    expect(passwordNeedsRehash(legacy)).toBe(true);
   });
 });
