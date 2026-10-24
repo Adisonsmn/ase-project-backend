@@ -81,6 +81,36 @@ jobs:
           cache-from: type=gha
           cache-to: type=gha,mode=max
 
+      # Migrasi dijalankan di sini, bukan saat container start, supaya cold
+      # start tidak ikut membayar waktu menjalankan Prisma CLI. Urutannya
+      # setelah image berhasil didorong (build gagal = skema tidak berubah) dan
+      # sebelum revisi baru dibuat (kode baru tidak pernah melihat skema lama).
+      # Seperti sebelumnya, revisi lama tetap melayani selama migrasi, jadi
+      # migrasi harus tetap kompatibel dengan kode yang sedang berjalan.
+      - uses: oven-sh/setup-bun@v2
+        with:
+          bun-version: 1.3.13
+
+      - run: bun install --frozen-lockfile
+
+      # DATABASE_URL diambil dari secret container app agar tidak ada salinan
+      # kedua di GitHub. Service principal deploy sudah ber-role Contributor di
+      # container app, yang mencakup izin membaca secret.
+      - name: Migrasi database
+        run: |
+          DATABASE_URL=$(az containerapp secret show \
+            --name "$APP_NAME" \
+            --resource-group "$RESOURCE_GROUP" \
+            --secret-name database-url \
+            --query value --output tsv)
+          if [ -z "$DATABASE_URL" ]; then
+            echo "::error::Secret database-url kosong atau tidak terbaca."
+            exit 1
+          fi
+          echo "::add-mask::$DATABASE_URL"
+          export DATABASE_URL
+          bunx prisma migrate deploy
+
       - name: Perbarui container app
         id: deploy
         run: |
@@ -99,8 +129,8 @@ jobs:
           echo "Revisi aktif: $REVISI" >> "$GITHUB_STEP_SUMMARY"
 
       # Container app melaporkan "berhasil diperbarui" begitu revisi diterima,
-      # bukan begitu aplikasinya siap melayani. Tanpa langkah ini, deploy yang
-      # crash saat migrasi Prisma tetap terlihat hijau.
+      # bukan begitu aplikasinya siap melayani. Tanpa langkah ini, revisi yang
+      # crash saat start atau tidak bisa menjangkau database tetap terlihat hijau.
       - name: Smoke test /health/ready
         run: |
           URL="https://${{ steps.deploy.outputs.fqdn }}/health/ready"
