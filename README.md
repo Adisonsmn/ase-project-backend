@@ -59,10 +59,13 @@ Setiap push ke `main` otomatis di-deploy ke Azure Container Apps oleh
 
 1. Typecheck dan test dijalankan lebih dulu; kalau gagal, deploy dibatalkan.
 2. Image dibangun dari `Dockerfile`, diberi tag commit SHA, lalu didorong ke ACR.
-3. Container app diperbarui ke image tersebut.
-4. `/health/ready` dipanggil sampai membalas 200. Container app melaporkan
+3. `prisma migrate deploy` dijalankan dari runner memakai secret `database-url`
+   milik container app. Migrasi sengaja tidak dijalankan saat container start
+   supaya cold start tidak ikut menunggu Prisma CLI.
+4. Container app diperbarui ke image tersebut.
+5. `/health/ready` dipanggil sampai membalas 200. Container app melaporkan
    "berhasil" begitu revisi diterima, bukan begitu aplikasinya siap melayani —
-   tanpa langkah ini, deploy yang crash saat migrasi Prisma tetap terlihat hijau.
+   tanpa langkah ini, revisi yang crash saat start tetap terlihat hijau.
 
 Pull request hanya menjalankan tes ([ci.yml](.github/workflows/ci.yml)). Definisi
 tesnya dipakai bersama lewat [tests.yml](.github/workflows/tests.yml) supaya
@@ -105,10 +108,21 @@ az containerapp update -n ase-backend -g ase-backend-rg --set-env-vars CORS_ORIG
 ### Skala & biaya
 
 `min-replicas` diset **0**, jadi container tidur saat tidak ada permintaan dan
-nyaris tidak memakan kredit. Konsekuensinya request pertama setelah idle butuh
-sekitar 10-15 detik: container start ulang dan menjalankan `prisma migrate
-deploy` lebih dulu. Ini perilaku normal, bukan gangguan. Kalau butuh respons
-cepat setiap saat (misalnya saat demo), nyalakan terus:
+nyaris tidak memakan kredit. Konsekuensinya request pertama setelah idle harus
+menunggu container bangun (image ditarik, server start). Ini perilaku normal,
+bukan gangguan. Yang sudah dilakukan untuk memperpendeknya:
+
+- Migrasi dipindah ke workflow Deploy, jadi container langsung menjalankan server.
+- Image runtime tidak membawa devDependencies (Prisma CLI), sehingga lebih cepat ditarik.
+- Koneksi database dibuka sejak boot dan dibiarkan idle hingga 5 menit.
+- Probe readiness bawaan ACA baru mengecek setelah 3 detik lalu tiap 5 detik.
+  Dengan probe TCP berinterval 1 detik, traffic diteruskan begitu port terbuka.
+  Probe disimpan di konfigurasi container app (bukan di repo) dan tetap terbawa
+  oleh `az containerapp update --image` di workflow Deploy.
+- Frontend memanggil `/health` begitu halaman pertama dimuat, sehingga container
+  sudah bangun sebelum user menekan tombol masuk.
+
+Kalau butuh respons cepat setiap saat (misalnya saat demo), nyalakan terus:
 
 ```bash
 az containerapp update -n ase-backend -g ase-backend-rg --min-replicas 1
